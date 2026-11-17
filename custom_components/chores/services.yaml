@@ -1,0 +1,74 @@
+complete:
+  fields:
+    chore_id:
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 1
+          mode: box
+    user_id:
+      example: 1
+      selector:
+        number:
+          min: 1
+          mode: box
+    note:
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores
+skip:
+  fields:
+    chore_id:
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    note:
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores
+snooze:
+  fields:
+    chore_id:
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    days:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 365
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores
+increment_counter:
+  fields:
+    chore_id:
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    by:
+      default: 1
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores

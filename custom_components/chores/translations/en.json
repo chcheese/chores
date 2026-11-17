@@ -1,0 +1,132 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Chores",
+        "description": "URL of the Chores app and an API token (create one in the app under Settings → API tokens).",
+        "data": {
+          "url": "URL",
+          "token": "API token"
+        },
+        "data_description": {
+          "url": "e.g. http://10.1.10.27:3070"
+        }
+      },
+      "reauth_confirm": {
+        "title": "New API token",
+        "description": "The stored token was rejected. Please enter a new one.",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the server.",
+      "invalid_auth": "Invalid token (must be an API token).",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Chores instance is already configured.",
+      "reauth_successful": "Token updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Chores options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "chore_sensors": "Create one next-due sensor per chore"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "due": {
+        "name": "Due chores"
+      },
+      "overdue": {
+        "name": "Overdue chores"
+      }
+    }
+  },
+  "services": {
+    "complete": {
+      "name": "Complete chore",
+      "description": "Marks a chore as done.",
+      "fields": {
+        "chore_id": {
+          "name": "Chore ID",
+          "description": "Chore ID (chore_id attribute of the sensors)."
+        },
+        "user_id": {
+          "name": "Person (ID)",
+          "description": "Who did it? Empty = currently assigned person."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Optional note."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "skip": {
+      "name": "Skip chore",
+      "description": "Skips the current cycle (no points).",
+      "fields": {
+        "chore_id": {
+          "name": "Chore ID",
+          "description": "Chore ID."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Optional note."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "snooze": {
+      "name": "Snooze chore",
+      "description": "Moves the due date by X days.",
+      "fields": {
+        "chore_id": {
+          "name": "Chore ID",
+          "description": "Chore ID."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of days."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "increment_counter": {
+      "name": "Increment counter",
+      "description": "Increments a chore's usage counter (e.g. dishwasher cycles).",
+      "fields": {
+        "chore_id": {
+          "name": "Chore ID",
+          "description": "Chore ID."
+        },
+        "by": {
+          "name": "By",
+          "description": "Amount (negative to decrease)."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    }
+  }
+}

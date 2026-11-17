@@ -1,0 +1,132 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Chores verbinden",
+        "description": "Adresse der Chores-App und ein API-Token (in der App unter Einstellungen → API-Tokens erstellen).",
+        "data": {
+          "url": "URL",
+          "token": "API-Token"
+        },
+        "data_description": {
+          "url": "z.B. http://10.1.10.27:3070"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Neues API-Token",
+        "description": "Das gespeicherte Token wurde abgelehnt. Bitte ein neues eingeben.",
+        "data": {
+          "token": "API-Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Server nicht erreichbar.",
+      "invalid_auth": "Token ungültig (es muss ein API-Token sein, kein Login).",
+      "unknown": "Unerwarteter Fehler."
+    },
+    "abort": {
+      "already_configured": "Diese Chores-Instanz ist schon eingerichtet.",
+      "reauth_successful": "Token aktualisiert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Chores-Optionen",
+        "data": {
+          "scan_interval": "Abfrage-Intervall (Sekunden)",
+          "chore_sensors": "Pro Aufgabe einen Sensor (nächste Fälligkeit) anlegen"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "due": {
+        "name": "Fällige Aufgaben"
+      },
+      "overdue": {
+        "name": "Überfällige Aufgaben"
+      }
+    }
+  },
+  "services": {
+    "complete": {
+      "name": "Aufgabe erledigen",
+      "description": "Markiert eine Aufgabe als erledigt.",
+      "fields": {
+        "chore_id": {
+          "name": "Aufgaben-ID",
+          "description": "ID der Aufgabe (Attribut chore_id der Sensoren)."
+        },
+        "user_id": {
+          "name": "Person (ID)",
+          "description": "Wer hat's gemacht? Leer = aktuell zuständige Person."
+        },
+        "note": {
+          "name": "Notiz",
+          "description": "Optionale Notiz."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "skip": {
+      "name": "Aufgabe überspringen",
+      "description": "Überspringt den aktuellen Zyklus (ohne Punkte).",
+      "fields": {
+        "chore_id": {
+          "name": "Aufgaben-ID",
+          "description": "ID der Aufgabe."
+        },
+        "note": {
+          "name": "Notiz",
+          "description": "Optionale Notiz."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "snooze": {
+      "name": "Aufgabe verschieben",
+      "description": "Verschiebt die Fälligkeit um X Tage.",
+      "fields": {
+        "chore_id": {
+          "name": "Aufgaben-ID",
+          "description": "ID der Aufgabe."
+        },
+        "days": {
+          "name": "Tage",
+          "description": "Um wie viele Tage verschieben."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "increment_counter": {
+      "name": "Zähler erhöhen",
+      "description": "Erhöht den Nutzungszähler einer Aufgabe (z.B. Spülgänge).",
+      "fields": {
+        "chore_id": {
+          "name": "Aufgaben-ID",
+          "description": "ID der Aufgabe."
+        },
+        "by": {
+          "name": "Um",
+          "description": "Wert, um den der Zähler erhöht wird (negativ = verringern)."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    }
+  }
+}
