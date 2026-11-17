@@ -39,6 +39,7 @@ const haushalt: Def[] = [
   { key: "fenster", title: "Fenster putzen", description: "Scheiben innen und aussen, Rahmen.", room: "Ganzes Haus", icon: "🪟", points: 30, scheduleType: "after_completion", intervalValue: 3, intervalUnit: "month", durationMinutes: 90 },
   { key: "matratzen", title: "Matratzen drehen/wenden", description: "Kopf- und Fussende tauschen bzw. wenden.", room: "Schlafzimmer", icon: "🔄", points: 10, scheduleType: "fixed", intervalValue: 3, intervalUnit: "month", durationMinutes: 10 },
   { key: "rauchmelder", title: "Rauchmelder testen", description: "Testknopf drücken, bei Bedarf Batterie wechseln.", room: "Ganzes Haus", icon: "🚨", points: 5, scheduleType: "fixed", intervalValue: 6, intervalUnit: "month", durationMinutes: 10 },
+  { key: "recycling", title: "Recycling wegbringen", description: "PET, Glas, Karton und Alu/Dosen zur Sammelstelle bringen.", room: "Entsorgung", icon: "♻️", points: 15, scheduleType: "after_completion", intervalValue: 14, intervalUnit: "day", durationMinutes: 30 },
   { key: "tiefkuehler", title: "Tiefkühler abtauen", description: "Ausräumen, abtauen, auswischen.", room: "Küche", icon: "❄️", points: 25, scheduleType: "after_completion", intervalValue: 6, intervalUnit: "month", durationMinutes: 60 },
 ];
 
