@@ -36,6 +36,8 @@ export async function buildApp({ config, db: givenDb, now, logger = true }: Buil
 
   const app = Fastify({
     logger: logger ? { level: config.logLevel } : false,
+    // Per-request logs would mostly be the 30 s healthcheck; errors are still logged.
+    disableRequestLogging: true,
     trustProxy: true,
   }).withTypeProvider<ZodTypeProvider>();
 

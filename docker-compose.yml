@@ -1,0 +1,25 @@
+# Dockge stack for the Chores app.
+# Data lives in ./data (SQLite). Create it once as the user that owns the
+# stack folder (the container runs as uid 1000):  mkdir -p data
+services:
+  chores:
+    build: .
+    # Or, once published:  image: ghcr.io/<user>/chores:latest
+    container_name: chores
+    restart: unless-stopped
+    ports:
+      - "${CHORES_PORT:-3070}:3000"
+    environment:
+      APP_TZ: Europe/Zurich
+      TZ: Europe/Zurich
+      # Set to "true" when served via HTTPS (e.g. Nginx Proxy Manager).
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+    user: "1000:1000"
+    volumes:
+      - ./data:/data
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

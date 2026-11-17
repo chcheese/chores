@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+**/data
+**/*.sqlite*
+.git
+custom_components
+magicmirror
