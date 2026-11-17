@@ -15,13 +15,15 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { type Db, openDb } from "./db/client.js";
+import { RewardService } from "./domain/rewards.js";
 import { ChoreService, ConflictError, NotFoundError, ValidationError } from "./domain/service.js";
 import { HttpError, resolveAuth } from "./lib/auth.js";
 import type { Config } from "./lib/config.js";
 import { choreRoutes } from "./routes/chores.js";
+import { rewardRoutes } from "./routes/rewards.js";
 import { userRoutes } from "./routes/users.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 export interface BuildOptions {
   config: Config;
@@ -33,6 +35,7 @@ export interface BuildOptions {
 export async function buildApp({ config, db: givenDb, now, logger = true }: BuildOptions) {
   const db = givenDb ?? openDb(config.dbFile);
   const svc = new ChoreService(db, { tz: config.tz, now });
+  const rewardSvc = new RewardService(db, { tz: config.tz, now });
 
   const app = Fastify({
     logger: logger ? { level: config.logLevel } : false,
@@ -98,6 +101,7 @@ export async function buildApp({ config, db: givenDb, now, logger = true }: Buil
 
   await app.register(choreRoutes(svc));
   await app.register(userRoutes(db, svc, config));
+  await app.register(rewardRoutes(rewardSvc));
 
   // Web UI (built SPA), served from the same container.
   const webDist = config.webDist ? resolve(config.webDist) : null;
@@ -113,5 +117,5 @@ export async function buildApp({ config, db: givenDb, now, logger = true }: Buil
 
   app.addHook("onClose", async () => db.$client.close());
 
-  return { app, db, svc };
+  return { app, db, svc, rewardSvc };
 }

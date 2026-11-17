@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { openDb } from "../src/db/client.js";
 import { chores } from "../src/db/schema.js";
 import { ChoreService } from "../src/domain/service.js";
+import { DEFAULT_TEMPLATE_KEYS } from "../src/domain/templates.js";
 
 const dir = mkdtempSync(join(tmpdir(), "chores-mig-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -13,7 +14,7 @@ describe("migrations", () => {
   it("re-opening an existing database keeps data and does not re-run migrations", () => {
     const file = join(dir, "chores.sqlite");
     const db1 = openDb(file);
-    new ChoreService(db1, { tz: "Europe/Zurich" }).importTemplates("all");
+    new ChoreService(db1, { tz: "Europe/Zurich" }).importTemplates(DEFAULT_TEMPLATE_KEYS);
     db1.$client.close();
 
     const db2 = openDb(file);

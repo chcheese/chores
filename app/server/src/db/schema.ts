@@ -16,6 +16,9 @@ export type AssignmentMode = (typeof ASSIGNMENT_MODES)[number];
 export const COMPLETION_KINDS = ["done", "skip"] as const;
 export type CompletionKind = (typeof COMPLETION_KINDS)[number];
 
+export const CLAIM_STATUSES = ["pending", "approved", "rejected"] as const;
+export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
+
 const createdAt = () =>
   text("created_at")
     .notNull()
@@ -71,6 +74,11 @@ export const chores = sqliteTable(
     counterValue: integer("counter_value").notNull().default(0),
     counterLabel: text("counter_label").notNull().default(""),
 
+    /** Estimated effort in minutes (null = unknown). */
+    durationMinutes: integer("duration_minutes"),
+    /** Months (1–12) the chore is in season; empty = all year. */
+    activeMonths: text("active_months", { mode: "json" }).$type<number[]>().notNull().default(sql`'[]'`),
+
     createdAt: createdAt(),
     updatedAt: text("updated_at")
       .notNull()
@@ -123,7 +131,47 @@ export const sessions = sqliteTable("sessions", {
   expiresAt: text("expires_at").notNull(),
 });
 
+/** Small key/value store for app-wide settings (e.g. vacation mode). */
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value", { mode: "json" }).notNull(),
+});
+
+export const rewards = sqliteTable("rewards", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  icon: text("icon").notNull().default("🎁"),
+  cost: integer("cost").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: createdAt(),
+});
+
+export const rewardClaims = sqliteTable(
+  "reward_claims",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    rewardId: integer("reward_id").references(() => rewards.id, { onDelete: "set null" }),
+    /** Copied from the reward so history survives edits/deletes. */
+    title: text("title").notNull(),
+    icon: text("icon").notNull(),
+    cost: integer("cost").notNull(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: CLAIM_STATUSES }).notNull().default("pending"),
+    requestedAt: text("requested_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    decidedAt: text("decided_at"),
+    decidedBy: integer("decided_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [index("reward_claims_user_idx").on(t.userId), index("reward_claims_status_idx").on(t.status)],
+);
+
 export type User = typeof users.$inferSelect;
 export type Chore = typeof chores.$inferSelect;
 export type NewChore = typeof chores.$inferInsert;
 export type Completion = typeof completions.$inferSelect;
+export type Reward = typeof rewards.$inferSelect;
+export type RewardClaim = typeof rewardClaims.$inferSelect;

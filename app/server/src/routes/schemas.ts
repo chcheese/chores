@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isCalendarDate } from "../domain/dates.js";
 import { validateRrule } from "../domain/schedule.js";
+import { TEMPLATE_CATEGORIES } from "../domain/templates.js";
 import { ASSIGNMENT_MODES, COMPLETION_KINDS, INTERVAL_UNITS, ROLES, SCHEDULE_TYPES } from "../db/schema.js";
 
 export const CalendarDateSchema = z
@@ -48,6 +49,13 @@ const choreFields = {
   counterTarget: z.number().int().min(1).max(100000).nullable(),
   counterValue: z.number().int().min(0),
   counterLabel: z.string().max(40),
+  durationMinutes: z.number().int().min(1).max(1440).nullable(),
+  activeMonths: z
+    .array(z.number().int().min(1).max(12))
+    .max(12)
+    .transform((m) => [...new Set(m)].sort((a, b) => a - b))
+    .refine((m) => m.length < 12, { message: "Alle 12 Monate = ganzjährig, bitte leer lassen" })
+    .meta({ description: "Saison: Monate 1–12, leer = ganzjährig" }),
 };
 
 export const ChoreCreateSchema = z
@@ -73,6 +81,10 @@ export const ChoreViewSchema = z.object({
   daysUntilDue: z.number().meta({ description: "Tage bis fällig, negativ = Tage seit Fälligkeit" }),
   counterReached: z.boolean(),
   assignee: UserSummarySchema.nullable(),
+  activeMonths: z.array(z.number()),
+  freshness: z.number().meta({ description: "Zustand 1 = frisch erledigt … 0 = fällig" }),
+  inSeason: z.boolean().meta({ description: "false = ausserhalb der Saison (ruht)" }),
+  paused: z.boolean().meta({ description: "true = Ferienmodus aktiv" }),
 });
 
 export const CompletionSchema = z.object({
@@ -89,6 +101,9 @@ export const CompletionSchema = z.object({
 
 export const TemplateSchema = z.object({
   key: z.string(),
+  category: z.enum(TEMPLATE_CATEGORIES),
+  durationMinutes: z.number(),
+  activeMonths: z.array(z.number()),
   title: z.string(),
   description: z.string(),
   room: z.string(),

@@ -2,7 +2,18 @@ import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { HttpError, requireAuth, requireRole, requireRoleOrToken } from "../lib/auth.js";
 import type { ChoreService } from "../domain/service.js";
-import { ChoreCreateSchema, ChorePatchSchema, ChoreViewSchema, CompletionSchema, ErrorSchema, IdParams, optionalBody } from "./schemas.js";
+import {
+  CalendarDateSchema,
+  ChoreCreateSchema,
+  ChorePatchSchema,
+  ChoreViewSchema,
+  CompletionSchema,
+  ErrorSchema,
+  IdParams,
+  optionalBody,
+} from "./schemas.js";
+
+const VacationSchema = z.object({ from: CalendarDateSchema, until: CalendarDateSchema, active: z.boolean() });
 
 const tags = ["Aufgaben"];
 const errors = { 400: ErrorSchema, 401: ErrorSchema, 403: ErrorSchema, 404: ErrorSchema };
@@ -184,6 +195,45 @@ export const choreRoutes =
           if (!own) throw new HttpError(403, "Keine Berechtigung");
         }
         return svc.undoCompletion(req.params.id);
+      },
+    );
+
+    // ----------------------------------------------------------- vacation
+
+    app.get(
+      "/api/vacation",
+      {
+        preHandler: requireAuth,
+        schema: { tags: ["Ferien"], summary: "Ferienmodus (null = keiner geplant)", response: { 200: VacationSchema.nullable(), ...errors } },
+      },
+      async () => svc.getVacation(),
+    );
+
+    app.put(
+      "/api/vacation",
+      {
+        preHandler: requireRoleOrToken("adult"),
+        schema: {
+          tags: ["Ferien"],
+          summary: "Ferienmodus planen/ändern",
+          description:
+            "Während der Ferien ist nichts fällig. Danach verschieben sich Aufgaben mit Rhythmus «nach Erledigung» um die Ferientage, feste Termine in den Ferien entfallen.",
+          body: z.object({ from: CalendarDateSchema, until: CalendarDateSchema }),
+          response: { 200: VacationSchema, ...errors },
+        },
+      },
+      async (req) => svc.setVacation(req.body),
+    );
+
+    app.delete(
+      "/api/vacation",
+      {
+        preHandler: requireRoleOrToken("adult"),
+        schema: { tags: ["Ferien"], summary: "Ferien beenden bzw. absagen", response: { 204: z.null(), ...errors } },
+      },
+      async (_req, reply) => {
+        svc.endVacation();
+        return reply.code(204).send(null);
       },
     );
   };

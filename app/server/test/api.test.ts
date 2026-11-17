@@ -214,7 +214,10 @@ describe("roles", () => {
 
 describe("templates", () => {
   it("imports the catalogue staggered over two weeks", async () => {
-    const all = await req("POST", "/api/templates/import", { cookie: adminCookie, body: { keys: "all" } });
+    const keys = (await req("GET", "/api/templates", { cookie: adminCookie })).body
+      .filter((t: { category: string }) => t.category === "haushalt")
+      .map((t: { key: string }) => t.key);
+    const all = await req("POST", "/api/templates/import", { cookie: adminCookie, body: { keys } });
     expect(all.status).toBe(201);
     expect(all.body).toHaveLength(15);
     const due = (await req("GET", "/api/chores/due", { cookie: adminCookie })).body;
@@ -224,7 +227,18 @@ describe("templates", () => {
     expect(dates.at(-1) < "2026-12-01").toBe(true);
     const mattress = all.body.find((c: { title: string }) => c.title.startsWith("Matratzen"));
     expect(mattress).toMatchObject({ scheduleType: "fixed", anchorDate: mattress.nextDue });
-    expect(JSON.stringify(all.body)).not.toContain("ß");
+    expect(all.body.every((c: { durationMinutes: number }) => c.durationMinutes > 0)).toBe(true);
+  });
+
+  it("house & garden templates start in their season", async () => {
+    const all = (await req("POST", "/api/templates/import", { cookie: adminCookie, body: { keys: "all" } })).body;
+    expect(all.length).toBeGreaterThan(25);
+    const byKey = (title: string) => all.find((c: { title: string }) => c.title === title);
+    // Mid-November: lawn mowing rests until April, raking leaves is in season.
+    expect(byKey("Rasen mähen")).toMatchObject({ nextDue: "2027-04-01", inSeason: false, status: "ok" });
+    expect(byKey("Laub rechen")).toMatchObject({ inSeason: true });
+    expect(byKey("Laub rechen").nextDue < "2026-12-01").toBe(true);
+    expect(JSON.stringify(all)).not.toContain("ß");
   });
 
   it("serves OpenAPI docs", async () => {
@@ -232,5 +246,65 @@ describe("templates", () => {
     expect(res.statusCode).toBe(200);
     const spec = JSON.parse(res.body);
     expect(Object.keys(spec.paths)).toEqual(expect.arrayContaining(["/api/chores/due", "/api/chores/{id}/complete", "/api/chores/{id}/counter"]));
+  });
+});
+
+describe("seasons & vacation", () => {
+  const mk = async (body: object) => (await req("POST", "/api/chores", { cookie: adminCookie, body: { scheduleType: "after_completion", ...body } })).body;
+
+  it("a seasonal chore that is still open at season end rests until next season", async () => {
+    clock = new Date("2026-10-20T08:00:00Z");
+    const c = await mk({ title: "Rasen", intervalValue: 7, activeMonths: [10, 4, 5, 6, 7, 8, 9, 9] });
+    expect(c.activeMonths).toEqual([4, 5, 6, 7, 8, 9, 10]);
+    expect(c).toMatchObject({ nextDue: "2026-10-20", status: "due", inSeason: true });
+    clock = new Date("2026-11-02T08:00:00Z");
+    const later = (await req("GET", `/api/chores/${c.id}`, { cookie: adminCookie })).body;
+    expect(later).toMatchObject({ nextDue: "2027-04-01", status: "ok", inSeason: false });
+    // Completing at the end of the season jumps to the next season as well.
+    clock = new Date("2026-10-30T08:00:00Z");
+    const c2 = await mk({ title: "Rasen 2", intervalValue: 7, activeMonths: [4, 5, 6, 7, 8, 9, 10] });
+    const done = (await req("POST", `/api/chores/${c2.id}/complete`, { cookie: adminCookie })).body.chore;
+    expect(done.nextDue).toBe("2027-04-01");
+  });
+
+  it("vacation mode pauses everything and shifts due dates afterwards", async () => {
+    const c = await mk({ title: "Bad", intervalValue: 7, lastDoneDate: "2026-11-14" }); // due 21 Nov
+    expect(c.nextDue).toBe("2026-11-21");
+    const v = await req("PUT", "/api/vacation", { cookie: adminCookie, body: { from: "2026-11-18", until: "2026-11-27" } });
+    expect(v.status).toBe(200);
+    expect(v.body).toMatchObject({ active: false });
+    // During the vacation nothing is due.
+    clock = new Date("2026-11-23T08:00:00Z");
+    expect((await req("GET", "/api/chores/due", { cookie: adminCookie })).body).toEqual([]);
+    expect((await req("GET", `/api/chores/${c.id}`, { cookie: adminCookie })).body).toMatchObject({ paused: true, status: "ok" });
+    expect((await req("GET", "/api/vacation", { cookie: adminCookie })).body).toMatchObject({ active: true });
+    // Back home on 28 Nov: 10 vacation days → due 1 Dec instead of 21 Nov.
+    clock = new Date("2026-11-28T08:00:00Z");
+    expect((await req("GET", "/api/vacation", { cookie: adminCookie })).body).toBeNull();
+    expect((await req("GET", `/api/chores/${c.id}`, { cookie: adminCookie })).body).toMatchObject({ nextDue: "2026-12-01", paused: false });
+  });
+
+  it("ending a vacation early only counts the days away", async () => {
+    const c = await mk({ title: "Saugen", intervalValue: 7, lastDoneDate: "2026-11-14" }); // due 21 Nov
+    await req("PUT", "/api/vacation", { cookie: adminCookie, body: { from: "2026-11-17", until: "2026-11-30" } });
+    clock = new Date("2026-11-20T08:00:00Z"); // 17–19 away = 3 days
+    expect((await req("DELETE", "/api/vacation", { cookie: adminCookie })).status).toBe(204);
+    expect((await req("GET", `/api/chores/${c.id}`, { cookie: adminCookie })).body.nextDue).toBe("2026-11-24");
+  });
+
+  it("only adults manage vacation; children can see it", async () => {
+    await req("POST", "/api/users", { cookie: adminCookie, body: { name: "Kind", role: "child", pin: "1111" } });
+    const users = (await req("GET", "/api/auth/users")).body;
+    const kid = users.find((u: { name: string }) => u.name === "Kind");
+    const login = await req("POST", "/api/auth/login", { body: { userId: kid.id, pin: "1111" } });
+    const kidCookie = `chores_session=${login.cookie!.value}`;
+    expect((await req("PUT", "/api/vacation", { cookie: kidCookie, body: { from: "2026-12-01", until: "2026-12-02" } })).status).toBe(403);
+    expect((await req("GET", "/api/vacation", { cookie: kidCookie })).status).toBe(200);
+    expect((await req("PUT", "/api/vacation", { cookie: adminCookie, body: { from: "2026-12-05", until: "2026-12-01" } })).status).toBe(400);
+  });
+
+  it("reports freshness and duration", async () => {
+    const c = await mk({ title: "Betten", intervalValue: 10, lastDoneDate: "2026-11-12", durationMinutes: 20 });
+    expect(c).toMatchObject({ nextDue: "2026-11-22", freshness: 0.5, durationMinutes: 20 });
   });
 });

@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { apiTokens, ROLES, type User, users } from "../db/schema.js";
 import type { ChoreService } from "../domain/service.js";
-import { TEMPLATES } from "../domain/templates.js";
+import { DEFAULT_TEMPLATE_KEYS, TEMPLATES } from "../domain/templates.js";
 import { createSession, destroySession, HttpError, requireAuth, requireRole, SESSION_COOKIE } from "../lib/auth.js";
 import type { Config } from "../lib/config.js";
 import { hashPin, randomSecret, sha256, verifyPin } from "../lib/crypto.js";
@@ -63,7 +63,7 @@ export const userRoutes =
         if (userCount() > 0) throw new HttpError(409, "Bereits eingerichtet");
         const { pin, importTemplates, ...rest } = req.body;
         const user = db.insert(users).values({ ...rest, role: "admin", pinHash: hashPin(pin) }).returning().get();
-        if (importTemplates) svc.importTemplates("all");
+        if (importTemplates) svc.importTemplates(DEFAULT_TEMPLATE_KEYS);
         setCookie(reply, user.id);
         return reply.code(201).send(toUserDto(user));
       },

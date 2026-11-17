@@ -3,6 +3,11 @@ import { addDays, addMonths, isCalendarDate, localDate } from "../src/domain/dat
 import {
   computeStatus,
   currentAssignee,
+  dueAfterVacation,
+  fitSeason,
+  freshness,
+  inSeason,
+  seasonStart,
   initialNextDue,
   nextDueAfter,
   nextDueAfterSkip,
@@ -194,5 +199,71 @@ describe("assignment", () => {
   it("returns the fixed user or nobody", () => {
     expect(currentAssignee({ assignmentMode: "user", assignedUserId: 4, rotationUserIds: [], rotationIndex: 0 })).toBe(4);
     expect(currentAssignee({ assignmentMode: "anyone", assignedUserId: 4, rotationUserIds: [], rotationIndex: 0 })).toBeNull();
+  });
+});
+
+describe("seasons", () => {
+  const summer = [4, 5, 6, 7, 8, 9, 10];
+  it("knows whether a date is in season", () => {
+    expect(inSeason("2026-11-17", [])).toBe(true);
+    expect(inSeason("2026-11-17", summer)).toBe(false);
+    expect(inSeason("2026-10-31", summer)).toBe(true);
+  });
+
+  it("finds the next season start, across the year boundary", () => {
+    expect(seasonStart("2026-11-17", summer)).toBe("2027-04-01");
+    expect(seasonStart("2026-05-10", summer)).toBe("2026-05-10");
+    expect(seasonStart("2026-12-05", [3, 4, 10, 11])).toBe("2027-03-01");
+  });
+
+  it("moves after_completion due dates to the season start", () => {
+    expect(fitSeason(after(7, "day"), summer, "2026-11-03")).toBe("2027-04-01");
+    expect(fitSeason(after(7, "day"), summer, "2026-10-28")).toBe("2026-10-28");
+    expect(fitSeason(after(7, "day"), [], "2026-11-03")).toBe("2026-11-03");
+  });
+
+  it("keeps fixed rhythms on their own weekdays inside the season", () => {
+    // Every Saturday, season April–October → first Saturday in April 2027 (3 Apr).
+    const sat = fixed(1, "week", "2026-01-03", "FREQ=WEEKLY;BYDAY=SA");
+    expect(fitSeason(sat, summer, "2026-11-07")).toBe("2027-04-03");
+  });
+});
+
+describe("freshness (condition bar)", () => {
+  it("slides from 1 after completion to 0 on the due date", () => {
+    const s = after(10, "day");
+    expect(freshness(s, "2026-11-20", "2026-11-10", "2026-11-10")).toBe(1);
+    expect(freshness(s, "2026-11-20", "2026-11-10", "2026-11-15")).toBe(0.5);
+    expect(freshness(s, "2026-11-20", "2026-11-10", "2026-11-20")).toBe(0);
+    expect(freshness(s, "2026-11-20", "2026-11-10", "2026-11-25")).toBe(0);
+  });
+
+  it("falls back to one cycle before the due date without history", () => {
+    expect(freshness(after(4, "week"), "2026-12-15", null, "2026-12-01")).toBe(0.5);
+  });
+
+  it("measures snoozed chores from the last completion", () => {
+    // Done 1 Nov, due 8 Nov, snoozed to 15 Nov: on 8 Nov half the time is left.
+    expect(freshness(after(7, "day"), "2026-11-15", "2026-11-01", "2026-11-08")).toBe(0.5);
+  });
+});
+
+describe("vacation", () => {
+  it("after_completion: the clock stops during the vacation", () => {
+    // Vacation 1–14 Dec (14 days). Done 25 Nov, due 9 Dec → due 23 Dec.
+    expect(dueAfterVacation(after(14, "day"), "2026-12-09", "2026-11-25", "2026-12-01", "2026-12-14")).toBe("2026-12-23");
+    // Already overdue before the vacation: stays overdue by the same amount.
+    expect(dueAfterVacation(after(7, "day"), "2026-11-28", "2026-11-21", "2026-12-01", "2026-12-14")).toBe("2026-12-12");
+  });
+
+  it("after_completion: completions during the vacation only count the days after them", () => {
+    // Done on 10 Dec (during vacation) → due 17 Dec; 4 vacation days remained → 21 Dec.
+    expect(dueAfterVacation(after(7, "day"), "2026-12-17", "2026-12-10", "2026-12-01", "2026-12-14")).toBe("2026-12-21");
+  });
+
+  it("fixed: dates inside the vacation are dropped", () => {
+    const sat = fixed(1, "week", "2026-01-03", "FREQ=WEEKLY;BYDAY=SA");
+    expect(dueAfterVacation(sat, "2026-12-05", null, "2026-12-01", "2026-12-14")).toBe("2026-12-19");
+    expect(dueAfterVacation(sat, "2026-12-19", null, "2026-12-01", "2026-12-14")).toBe("2026-12-19");
   });
 });

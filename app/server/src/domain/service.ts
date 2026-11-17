@@ -7,20 +7,29 @@ import {
   type Completion,
   completions,
   type NewChore,
+  settings,
   type User,
   users,
 } from "../db/schema.js";
-import { addDays, type CalendarDate, localDate } from "./dates.js";
+import { addDays, type CalendarDate, diffDays, localDate } from "./dates.js";
 import {
   type ChoreStatus,
   computeStatus,
   currentAssignee,
+  dueAfterVacation,
+  fitSeason,
+  freshness,
+  inSeason,
   initialNextDue,
   intervalDays,
   nextDueAfter,
   nextDueAfterSkip,
+  nextFixedOccurrence,
   nextRotationIndex,
+  onVacation,
+  seasonStart,
   snoozedDue,
+  type Vacation,
 } from "./schedule.js";
 import { TEMPLATES } from "./templates.js";
 
@@ -40,6 +49,16 @@ export interface ChoreView extends Chore {
   daysUntilDue: number;
   counterReached: boolean;
   assignee: UserSummary | null;
+  /** 1 = just done … 0 = due (condition bar). */
+  freshness: number;
+  /** false while the chore is out of season (dormant). */
+  inSeason: boolean;
+  /** true while vacation mode is on. */
+  paused: boolean;
+}
+
+export interface VacationState extends Vacation {
+  active: boolean;
 }
 
 export interface ClockOpts {
@@ -60,6 +79,9 @@ const snapshot = (c: Chore): ChoreStateSnapshot => ({
 const STATUS_ORDER: Record<ChoreStatus, number> = { overdue: 0, due: 1, ok: 2 };
 
 export class ChoreService {
+  /** Day the daily maintenance (season rollover, vacation end) last ran. */
+  private maintainedOn: CalendarDate | null = null;
+
   constructor(
     private readonly db: Db,
     private readonly clock: ClockOpts,
@@ -79,20 +101,69 @@ export class ChoreService {
     return new Map(this.db.select().from(users).all().map((u) => [u.id, u]));
   }
 
-  view(c: Chore, userMap = this.userMap(), today = this.today()): ChoreView {
+  private localDay(iso: string | null): CalendarDate | null {
+    return iso ? localDate(new Date(iso), this.clock.tz) : null;
+  }
+
+  view(c: Chore, userMap = this.userMap(), today = this.today(), vacation = this.getVacationRaw()): ChoreView {
     const s = computeStatus(c, today);
     const assigneeId = currentAssignee(c);
-    return { ...c, ...s, assignee: assigneeId != null ? summary(userMap.get(assigneeId)) : null };
+    const season = inSeason(today, c.activeMonths);
+    const paused = onVacation(vacation, today);
+    const resting = paused || !season;
+    return {
+      ...c,
+      ...s,
+      // Out of season / on vacation nothing is due (HA sends no reminders).
+      status: resting ? "ok" : s.status,
+      counterReached: resting ? false : s.counterReached,
+      assignee: assigneeId != null ? summary(userMap.get(assigneeId)) : null,
+      freshness: resting ? 1 : Math.round(freshness(c, c.nextDue, this.localDay(c.lastDone), today) * 100) / 100,
+      inSeason: season,
+      paused,
+    };
+  }
+
+  // ------------------------------------------------------- maintenance
+
+  /**
+   * Runs once per day (lazily, on the first read): ends a vacation that is
+   * over and sends chores whose season ended into the next season.
+   */
+  private maintain(): void {
+    const today = this.today();
+    if (this.maintainedOn === today) return;
+    this.db.transaction((tx) => {
+      const v = this.getVacationRaw();
+      if (v && today > v.until) {
+        this.applyVacationEnd(v, v.until);
+        tx.delete(settings).where(eq(settings.key, "vacation")).run();
+      }
+      const seasonal = tx.select().from(chores).all().filter((c) => c.activeMonths.length > 0);
+      for (const c of seasonal) {
+        let due = c.nextDue;
+        // The season ended while the chore was still open → next season.
+        if (!inSeason(today, c.activeMonths) && due < today) {
+          const start = seasonStart(today, c.activeMonths);
+          due = c.scheduleType === "fixed" ? fitSeason(c, c.activeMonths, nextFixedOccurrence(c, addDays(start, -1))) : start;
+        }
+        due = fitSeason(c, c.activeMonths, due);
+        if (due !== c.nextDue) tx.update(chores).set({ nextDue: due }).where(eq(chores.id, c.id)).run();
+      }
+    });
+    this.maintainedOn = today;
   }
 
   list(opts: { includeInactive?: boolean } = {}): ChoreView[] {
+    this.maintain();
     const rows = opts.includeInactive
       ? this.db.select().from(chores).orderBy(asc(chores.nextDue), asc(chores.title)).all()
       : this.db.select().from(chores).where(eq(chores.active, true)).orderBy(asc(chores.nextDue), asc(chores.title)).all();
     const map = this.userMap();
     const today = this.today();
+    const vacation = this.getVacationRaw();
     return rows
-      .map((c) => this.view(c, map, today))
+      .map((c) => this.view(c, map, today, vacation))
       .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.nextDue.localeCompare(b.nextDue));
   }
 
@@ -101,6 +172,7 @@ export class ChoreService {
   }
 
   get(id: number): Chore {
+    this.maintain();
     const c = this.db.select().from(chores).where(eq(chores.id, id)).get();
     if (!c) throw new NotFoundError(`Aufgabe ${id} nicht gefunden`);
     return c;
@@ -141,7 +213,7 @@ export class ChoreService {
       anchorDate: rest.scheduleType === "fixed" ? (rest.anchorDate ?? today) : null,
     };
     this.validateAssignment(rest);
-    const nextDue = rest.nextDue ?? initialNextDue(spec, today, lastDoneDate);
+    const nextDue = fitSeason(spec, rest.activeMonths ?? [], rest.nextDue ?? initialNextDue(spec, today, lastDoneDate));
     const row = this.db
       .insert(chores)
       .values({ ...rest, anchorDate: spec.anchorDate, nextDue })
@@ -162,8 +234,9 @@ export class ChoreService {
       const today = this.today();
       if (merged.scheduleType === "fixed" && !merged.anchorDate) merged.anchorDate = today;
       if (merged.scheduleType === "after_completion") merged.anchorDate = null;
-      nextDue = initialNextDue(merged, today, merged.lastDone ? localDate(new Date(merged.lastDone), this.clock.tz) : null);
+      nextDue = initialNextDue(merged, today, this.localDay(merged.lastDone));
     }
+    nextDue = fitSeason(merged, merged.activeMonths, nextDue);
     if (merged.assignmentMode !== "rotation") merged.rotationIndex = 0;
     const row = this.db
       .update(chores)
@@ -215,7 +288,7 @@ export class ChoreService {
         .update(chores)
         .set({
           lastDone: at.toISOString(),
-          nextDue: nextDueAfter(c, c.nextDue, doneDate),
+          nextDue: fitSeason(c, c.activeMonths, nextDueAfter(c, c.nextDue, doneDate)),
           rotationIndex: nextRotationIndex(c),
           counterValue: 0,
           updatedAt: this.now().toISOString(),
@@ -242,7 +315,7 @@ export class ChoreService {
         .get();
       const updated = tx
         .update(chores)
-        .set({ nextDue: nextDueAfterSkip(c, c.nextDue, this.today()), counterValue: 0, updatedAt: at.toISOString() })
+        .set({ nextDue: fitSeason(c, c.activeMonths, nextDueAfterSkip(c, c.nextDue, this.today())), counterValue: 0, updatedAt: at.toISOString() })
         .where(eq(chores.id, c.id))
         .returning()
         .get();
@@ -254,7 +327,7 @@ export class ChoreService {
     const c = this.get(id);
     const row = this.db
       .update(chores)
-      .set({ nextDue: snoozedDue(c.nextDue, this.today(), days), updatedAt: this.now().toISOString() })
+      .set({ nextDue: fitSeason(c, c.activeMonths, snoozedDue(c.nextDue, this.today(), days)), updatedAt: this.now().toISOString() })
       .where(eq(chores.id, id))
       .returning()
       .get();
@@ -301,6 +374,52 @@ export class ChoreService {
     });
   }
 
+  // ----------------------------------------------------------- vacation
+
+  private getVacationRaw(): Vacation | null {
+    const row = this.db.select().from(settings).where(eq(settings.key, "vacation")).get();
+    return (row?.value as Vacation | undefined) ?? null;
+  }
+
+  getVacation(): VacationState | null {
+    this.maintain();
+    const v = this.getVacationRaw();
+    return v ? { ...v, active: onVacation(v, this.today()) } : null;
+  }
+
+  setVacation(v: Vacation): VacationState {
+    const today = this.today();
+    if (v.until < v.from) throw new ValidationError("«Bis» liegt vor «von»");
+    if (v.until < today) throw new ValidationError("Die Ferien sind bereits vorbei");
+    if (diffDays(v.from, v.until) > 365) throw new ValidationError("Höchstens ein Jahr");
+    const current = this.getVacationRaw();
+    // An already running vacation keeps its start (the clock stopped back then).
+    const from = current && onVacation(current, today) ? current.from : v.from;
+    const value = { from, until: v.until };
+    this.db.insert(settings).values({ key: "vacation", value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run();
+    this.maintainedOn = null;
+    return { ...value, active: onVacation(value, today) };
+  }
+
+  /** Ends (or cancels) the vacation. A running one ends yesterday; due dates move accordingly. */
+  endVacation(): void {
+    const v = this.getVacationRaw();
+    if (!v) return;
+    const today = this.today();
+    this.db.transaction((tx) => {
+      if (v.from <= today) this.applyVacationEnd(v, addDays(today, -1));
+      tx.delete(settings).where(eq(settings.key, "vacation")).run();
+    });
+    this.maintainedOn = null;
+  }
+
+  private applyVacationEnd(v: Vacation, lastDay: CalendarDate): void {
+    for (const c of this.db.select().from(chores).where(eq(chores.active, true)).all()) {
+      const due = fitSeason(c, c.activeMonths, dueAfterVacation(c, c.nextDue, this.localDay(c.lastDone), v.from, lastDay));
+      if (due !== c.nextDue) this.db.update(chores).set({ nextDue: due, updatedAt: this.now().toISOString() }).where(eq(chores.id, c.id)).run();
+    }
+  }
+
   completionsList(filter: { choreId?: number; userId?: number; limit?: number; offset?: number } = {}) {
     const conds = [
       ...(filter.choreId != null ? [eq(completions.choreId, filter.choreId)] : []),
@@ -339,7 +458,7 @@ export class ChoreService {
       sorted.map((t, i) => {
         const offset = Math.min(Math.round((i * 14) / Math.max(1, sorted.length)), intervalDays(t.intervalValue, t.intervalUnit) - 1);
         const start = addDays(today, offset);
-        const { key: _key, ...fields } = t;
+        const { key: _key, category: _category, ...fields } = t;
         return this.create({
           ...fields,
           ...(t.scheduleType === "fixed" ? { anchorDate: start } : {}),
