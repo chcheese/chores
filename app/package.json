@@ -1,0 +1,11 @@
+{
+  "name": "chores-app",
+  "private": true,
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "build": "npm run build -w web && npm run build -w server",
+    "test": "npm test -w server",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+*.sqlite
+*.sqlite-*
+.env
+__pycache__/
+*.pyc
+.DS_Store
