@@ -4,15 +4,17 @@ import { api, type User } from "./api";
 import { ChoresPage } from "./pages/Chores";
 import { HistoryPage } from "./pages/History";
 import { Login } from "./pages/Login";
+import { RewardsPage, usePendingClaims } from "./pages/Rewards";
 import { SettingsPage } from "./pages/Settings";
 import { Setup } from "./pages/Setup";
 import { TodayPage } from "./pages/Today";
 import { Avatar, ToastProvider } from "./ui";
 
-type Tab = "heute" | "aufgaben" | "verlauf" | "einstellungen";
+type Tab = "heute" | "aufgaben" | "belohnungen" | "verlauf" | "einstellungen";
 const TABS: { id: Tab; label: string; icon: string; title: string }[] = [
   { id: "heute", label: "Heute", icon: "🏠", title: "Heute" },
   { id: "aufgaben", label: "Aufgaben", icon: "📋", title: "Aufgaben" },
+  { id: "belohnungen", label: "Punkte", icon: "🎁", title: "Punkte & Belohnungen" },
   { id: "verlauf", label: "Verlauf", icon: "🕘", title: "Verlauf" },
   { id: "einstellungen", label: "Einstellungen", icon: "⚙️", title: "Einstellungen" },
 ];
@@ -47,6 +49,7 @@ export function App() {
     refetchInterval: false,
   });
   const [tab, setTab] = useHashTab();
+  const pendingClaims = usePendingClaims(!!me.data?.user && canManage(me.data.user));
 
   const refresh = () => qc.invalidateQueries();
 
@@ -67,7 +70,7 @@ export function App() {
 
   const current = TABS.find((t) => t.id === tab)!;
   // Children only get the "Heute" view for now (kid mode comes later).
-  const visibleTabs = user.role === "child" ? TABS.filter((t) => t.id === "heute" || t.id === "einstellungen") : TABS;
+  const visibleTabs = user.role === "child" ? TABS.filter((t) => ["heute", "belohnungen", "einstellungen"].includes(t.id)) : TABS;
 
   return (
     <MeCtx.Provider value={user}>
@@ -82,6 +85,7 @@ export function App() {
           <main className="content">
             {tab === "heute" && <TodayPage />}
             {tab === "aufgaben" && canManage(user) && <ChoresPage />}
+            {tab === "belohnungen" && <RewardsPage />}
             {tab === "verlauf" && user.role !== "child" && <HistoryPage />}
             {tab === "einstellungen" && <SettingsPage />}
           </main>
@@ -90,6 +94,7 @@ export function App() {
               <button key={t.id} aria-current={t.id === tab ? "page" : undefined} onClick={() => setTab(t.id)}>
                 <span className="ico" aria-hidden>
                   {t.icon}
+                  {t.id === "belohnungen" && pendingClaims > 0 && <span className="nav-badge">{pendingClaims}</span>}
                 </span>
                 {t.label}
               </button>

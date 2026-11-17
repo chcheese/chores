@@ -65,7 +65,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
           <span>PIN (4–8 Ziffern)</span>
           <input className="input" inputMode="numeric" pattern="\d{4,8}" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required />
         </label>
-        <label className="row">
+        <label className="row check">
           <input type="checkbox" checked={importTemplates} onChange={(e) => setImport(e.target.checked)} />
           Vorlagen übernehmen (15 typische Haushaltsaufgaben)
         </label>

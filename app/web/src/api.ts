@@ -42,13 +42,20 @@ export interface Chore {
   counterTarget: number | null;
   counterValue: number;
   counterLabel: string;
+  durationMinutes: number | null;
+  activeMonths: number[];
   status: Status;
   daysUntilDue: number;
   counterReached: boolean;
   assignee: UserSummary | null;
+  freshness: number;
+  inSeason: boolean;
+  paused: boolean;
 }
 
-export type ChoreInput = Partial<Omit<Chore, "id" | "status" | "daysUntilDue" | "counterReached" | "assignee" | "lastDone" | "rotationIndex">> & {
+export type ChoreInput = Partial<
+  Omit<Chore, "id" | "status" | "daysUntilDue" | "counterReached" | "assignee" | "lastDone" | "rotationIndex" | "freshness" | "inSeason" | "paused">
+> & {
   lastDoneDate?: string | null;
 };
 
@@ -64,8 +71,13 @@ export interface Completion {
   note: string;
 }
 
+export type TemplateCategory = "haushalt" | "haus-garten";
+
 export interface Template {
   key: string;
+  category: TemplateCategory;
+  durationMinutes: number;
+  activeMonths: number[];
   title: string;
   description: string;
   room: string;
@@ -82,6 +94,58 @@ export interface ApiToken {
   createdAt: string;
   lastUsedAt: string | null;
   token?: string;
+}
+
+export interface Vacation {
+  from: string;
+  until: string;
+  active: boolean;
+}
+
+export interface Reward {
+  id: number;
+  title: string;
+  description: string;
+  icon: string;
+  cost: number;
+  active: boolean;
+}
+
+export type ClaimStatus = "pending" | "approved" | "rejected";
+
+export interface Claim {
+  id: number;
+  rewardId: number | null;
+  title: string;
+  icon: string;
+  cost: number;
+  userId: number;
+  status: ClaimStatus;
+  requestedAt: string;
+  decidedAt: string | null;
+  decidedBy: number | null;
+}
+
+export interface Badge {
+  key: string;
+  title: string;
+  icon: string;
+  description: string;
+  earnedAt: string | null;
+}
+
+export interface Progress {
+  userId: number;
+  pointsTotal: number;
+  balance: number;
+  level: number;
+  levelFloor: number;
+  levelNext: number;
+  streak: number;
+  bestStreak: number;
+  doneCount: number;
+  doneThisWeek: number;
+  badges: Badge[];
 }
 
 export class ApiError extends Error {
@@ -142,6 +206,25 @@ export const api = {
   tokens: () => call<ApiToken[]>("GET", "/api/tokens"),
   createToken: (name: string) => call<ApiToken>("POST", "/api/tokens", { name }),
   deleteToken: (id: number) => call<void>("DELETE", `/api/tokens/${id}`),
+
+  vacation: () => call<Vacation | null>("GET", "/api/vacation"),
+  setVacation: (from: string, until: string) => call<Vacation>("PUT", "/api/vacation", { from, until }),
+  endVacation: () => call<void>("DELETE", "/api/vacation"),
+
+  rewards: (includeInactive = false) => call<Reward[]>("GET", `/api/rewards${includeInactive ? "?include_inactive=true" : ""}`),
+  createReward: (b: { title: string; description: string; icon: string; cost: number }) => call<Reward>("POST", "/api/rewards", b),
+  updateReward: (id: number, b: Partial<Omit<Reward, "id">>) => call<Reward>("PATCH", `/api/rewards/${id}`, b),
+  deleteReward: (id: number) => call<void>("DELETE", `/api/rewards/${id}`),
+  claimReward: (id: number) => call<Claim>("POST", `/api/rewards/${id}/claim`, {}),
+  claims: (q: { status?: ClaimStatus; userId?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (q.status) p.set("status", q.status);
+    if (q.userId) p.set("user_id", String(q.userId));
+    return call<Claim[]>("GET", `/api/claims?${p}`);
+  },
+  decideClaim: (id: number, approve: boolean) => call<Claim>("POST", `/api/claims/${id}/${approve ? "approve" : "reject"}`, {}),
+  withdrawClaim: (id: number) => call<void>("DELETE", `/api/claims/${id}`),
+  progress: () => call<Progress[]>("GET", "/api/progress"),
 
   templates: () => call<Template[]>("GET", "/api/templates"),
   importTemplates: (keys: string[] | "all") => call<Chore[]>("POST", "/api/templates/import", { keys }),

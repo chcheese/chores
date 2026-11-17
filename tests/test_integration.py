@@ -7,9 +7,9 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.chores.const import DOMAIN, EVENT_STATUS_CHANGED
+from custom_components.chores.const import DOMAIN, EVENT_REWARD_REQUESTED, EVENT_STATUS_CHANGED
 
-from .conftest import CHORES, TOKEN, URL, USERS, chore
+from .conftest import CHORES, CLAIMS, PROGRESS, TOKEN, URL, USERS, VACATION, chore, claim
 
 
 async def _setup(hass: HomeAssistant) -> MockConfigEntry:
@@ -104,6 +104,9 @@ async def test_status_change_event_and_new_chore(hass: HomeAssistant, mock_api) 
     changed = [CHORES[0], chore(2, "Betten beziehen", "overdue", "2026-11-17"), CHORES[2], chore(4, "Neu", "ok", "2026-12-01")]
     mock_api.get(f"{URL}/api/chores", json=changed)
     mock_api.get(f"{URL}/api/users", json=USERS)
+    mock_api.get(f"{URL}/api/vacation", json=VACATION)
+    mock_api.get(f"{URL}/api/claims?status=pending", json=CLAIMS)
+    mock_api.get(f"{URL}/api/progress", json=PROGRESS)
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
 
@@ -117,3 +120,64 @@ async def test_status_change_event_and_new_chore(hass: HomeAssistant, mock_api) 
 async def test_unload(hass: HomeAssistant, mock_api) -> None:
     entry = await _setup(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_vacation_rewards_and_points(hass: HomeAssistant, mock_api) -> None:
+    await _setup(hass)
+    states = {s.entity_id: s for s in hass.states.async_all()}
+    vacation = next(s for e, s in states.items() if e.startswith("binary_sensor."))
+    assert vacation.state == "on"
+    assert vacation.attributes["until"] == "2026-11-22"
+
+    pending = next(s for e, s in states.items() if e.endswith("_pending_rewards") or e.endswith("_offene_wunsche"))
+    assert pending.state == "1"
+    assert pending.attributes["claims"][0] == {
+        "claim_id": 7, "reward": "Glace", "icon": "🍦", "cost": 40, "user": "Lena", "requested_at": "2026-11-17T10:00:00Z"
+    }
+
+    lena = next(s for e, s in states.items() if e.endswith("punkte_lena"))
+    assert lena.state == "80"
+    assert lena.attributes["streak"] == 4
+    assert lena.attributes["badges"] == ["🌱 Erste Schritte"]
+
+
+async def test_reward_event_and_services(hass: HomeAssistant, mock_api) -> None:
+    entry = await _setup(hass)
+    events = []
+    hass.bus.async_listen(EVENT_REWARD_REQUESTED, lambda e: events.append(e.data))
+
+    mock_api.clear_requests()
+    mock_api.get(f"{URL}/api/auth/me", json={"kind": "token", "user": None, "tokenName": "HA"})
+    mock_api.get(f"{URL}/api/chores", json=CHORES)
+    mock_api.get(f"{URL}/api/users", json=USERS)
+    mock_api.get(f"{URL}/api/vacation", json=None)
+    mock_api.get(f"{URL}/api/claims?status=pending", json=[*CLAIMS, claim(8, title="Filmabend", cost=80)])
+    mock_api.get(f"{URL}/api/progress", json=PROGRESS)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert events == [{"claim_id": 8, "reward": "Filmabend", "icon": "🍦", "cost": 80, "user_id": 2, "user": "Lena"}]
+
+    mock_api.post(f"{URL}/api/claims/8/approve", json=claim(8))
+    mock_api.post(f"{URL}/api/claims/7/reject", json=claim(7))
+    mock_api.put(f"{URL}/api/vacation", json=VACATION)
+    mock_api.delete(f"{URL}/api/vacation", status=204)
+    await hass.services.async_call(DOMAIN, "approve_reward", {"claim_id": 8}, blocking=True)
+    await hass.services.async_call(DOMAIN, "reject_reward", {"claim_id": 7}, blocking=True)
+    await hass.services.async_call(DOMAIN, "start_vacation", {"start": "2026-12-24", "until": "2027-01-03"}, blocking=True)
+    await hass.services.async_call(DOMAIN, "end_vacation", {}, blocking=True)
+    calls = [(c[0], str(c[1]), c[2]) for c in mock_api.mock_calls if c[0] != "GET"]
+    assert ("POST", f"{URL}/api/claims/8/approve", {}) in calls
+    assert ("POST", f"{URL}/api/claims/7/reject", {}) in calls
+    assert ("PUT", f"{URL}/api/vacation", {"from": "2026-12-24", "until": "2027-01-03"}) in calls
+    assert any(c[0] == "DELETE" for c in calls)
+
+
+async def test_older_server_without_extras(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(f"{URL}/api/auth/me", json={"kind": "token", "user": None, "tokenName": "HA"})
+    aioclient_mock.get(f"{URL}/api/chores", json=CHORES)
+    aioclient_mock.get(f"{URL}/api/users", json=USERS)
+    aioclient_mock.get(f"{URL}/api/vacation", status=404, json={"error": "Nicht gefunden"})
+    entry = await _setup(hass)
+    assert entry.state.value == "loaded"
+    vacation = next(s for s in hass.states.async_all() if s.entity_id.startswith("binary_sensor."))
+    assert vacation.state == "off"

@@ -7,8 +7,7 @@ Selbstgehostete App, die an wiederkehrende Haushaltsaufgaben erinnert: Betten be
 ```
 [Chores-Container: Fastify-API + SQLite + Web-UI (PWA)]
         ├── Home Assistant (custom_components/chores, via HACS)
-        ├── MagicMirror²-Modul               (geplant)
-        └── Kinder-Ansicht / Gamification     (geplant)
+        └── MagicMirror²-Modul               (geplant)
 ```
 
 Die App ist die einzige Quelle der Wahrheit. Home Assistant ist nur ein Client.
@@ -22,9 +21,13 @@ Die App ist die einzige Quelle der Wahrheit. Home Assistant ist nur ein Client.
 - **Erledigen, Verschieben, Überspringen**, jeweils mit *Rückgängig*.
 - **Zuweisung**: alle, feste Person oder abwechselnd (Rotation).
 - **Zähler**: z.B. «alle 30 Spülgänge». Home Assistant zählt mit, die Aufgabe wird fällig, sobald der Zähler erreicht ist (oder das Datum, je nachdem, was zuerst eintritt).
-- **Punkte und Verlauf** werden schon jetzt gespeichert (für die spätere Gamification).
+- **Saison**: Aufgaben wie «Rasen mähen» gelten nur in bestimmten Monaten (z.B. April–Oktober). Ausserhalb der Saison ruhen sie und werden zum Saisonstart wieder fällig. Feste Rhythmen bleiben dabei auf ihren Wochentagen.
+- **Ferienmodus**: Während der Ferien ist nichts fällig. Danach verschieben sich Aufgaben «nach Erledigung» um die Ferientage, feste Termine in den Ferien entfallen. Lässt sich planen oder vorzeitig beenden.
+- **Zustandsbalken**: Jede Aufgabe zeigt, wie «frisch» sie ist – voll und grün direkt nach dem Erledigen, leer und rot am Fälligkeitstag. Die Ansicht «Bereiche» fasst das pro Raum zusammen.
+- **Dauer**: geschätzte Minuten pro Aufgabe, Filter «⚡ Kurz» (bis 15 Min.) und Zeitschätzung für alles Fällige.
+- **Punkte & Belohnungen**: Wer etwas erledigt, sammelt Punkte. Erwachsene legen Belohnungen an (Glace, Bildschirmzeit …), Kinder lösen sie ein, ein Erwachsener gibt frei (in der App oder per Home Assistant). Dazu Level, Serien («Tage in Folge») und zehn Abzeichen.
 - **Login** per Avatar + PIN, Rollen *Admin*, *Erwachsen*, *Kind*. API-Tokens für Home Assistant, MagicMirror & Co.
-- **Vorlage-Katalog** mit 15 typischen Aufgaben. Beim Übernehmen werden die ersten Fälligkeiten über zwei Wochen verteilt.
+- **Vorlage-Katalog**: 15 Haushaltsaufgaben und 14 für Haus & Garten (Rasen, Hecke, Laub, Dachrinne, Aussenwasser, Heizung entlüften, Reifenwechsel, Lüftungsfilter, Enthärtungssalz …) mit Dauer und Saison. Beim Übernehmen werden die ersten Fälligkeiten über zwei Wochen verteilt.
 - **OpenAPI-Doku** unter `/api/docs`.
 - Hell/Dunkel, Deutsch (Schweizer Schreibweise), keine Cloud, keine externen Abhängigkeiten zur Laufzeit.
 
@@ -68,7 +71,10 @@ Ohne HACS: den Ordner `custom_components/chores` nach `/config/custom_components
 | `todo.haushalt` | Fällige und überfällige Aufgaben. Abhaken = in der App erledigen. |
 | `sensor.haushalt_fallige_aufgaben` | Anzahl fällig + überfällig, Liste im Attribut `chores` |
 | `sensor.haushalt_uberfallige_aufgaben` | Anzahl überfällig |
-| `sensor.haushalt_<aufgabe>` | Nächste Fälligkeit (Datum) pro Aufgabe; Attribute `chore_id`, `status`, `assignee`, Zähler … (abschaltbar in den Optionen) |
+| `sensor.haushalt_<aufgabe>` | Nächste Fälligkeit (Datum) pro Aufgabe; Attribute `chore_id`, `status`, `assignee`, `duration_minutes`, `freshness`, `in_season`, Zähler … (abschaltbar in den Optionen) |
+| `binary_sensor.haushalt_ferienmodus` | An, solange der Ferienmodus läuft; Attribute `start`, `until` |
+| `sensor.haushalt_offene_wunsche` | Anzahl Belohnungswünsche, die auf Freigabe warten; Liste im Attribut `claims` |
+| `sensor.haushalt_punkte_<name>` | Einlösbare Punkte pro Person; Attribute `level`, `streak`, `done_this_week`, `badges` |
 
 Die Entitäts-IDs entstehen aus den Namen in der Sprache deiner HA-Installation. Englisch: `sensor.haushalt_due_chores`.
 
@@ -80,12 +86,16 @@ Die Entitäts-IDs entstehen aus den Namen in der Sprache deiner HA-Installation.
 | `chores.skip` | `chore_id`, optional `note` |
 | `chores.snooze` | `chore_id`, `days` |
 | `chores.increment_counter` | `chore_id`, `by` (Standard 1) |
+| `chores.approve_reward` / `chores.reject_reward` | `claim_id` |
+| `chores.start_vacation` | `until`, optional `start` (Standard heute) |
+| `chores.end_vacation` | – |
 
 Die `chore_id` steht als Attribut auf jedem Aufgaben-Sensor. Alle Services können die aktualisierte Aufgabe als Antwort zurückgeben (`response_variable`).
 
-### Event
+### Events
 
-`chores_status_changed` wird ausgelöst, wenn eine Aufgabe den Status wechselt (z.B. `due` → `overdue`). Daten: `chore_id`, `title`, `old_status`, `new_status`, `next_due`, `assignee`.
+- `chores_status_changed`: eine Aufgabe wechselt den Status (z.B. `due` → `overdue`). Daten: `chore_id`, `title`, `old_status`, `new_status`, `next_due`, `assignee`.
+- `chores_reward_requested`: ein neuer Belohnungswunsch. Daten: `claim_id`, `reward`, `icon`, `cost`, `user_id`, `user`.
 
 ### Beispiel-Automationen
 
@@ -127,6 +137,38 @@ Saugroboter fertig → «Boden saugen» erledigen:
           note: "Saugroboter"
 ```
 
+Belohnungswunsch als Push mit «Ja/Nein»-Knöpfen:
+
+```yaml
+  - alias: Haushalt – Belohnungswunsch
+    triggers:
+      - trigger: event
+        event_type: chores_reward_requested
+    actions:
+      - action: notify.mobile_app_handy
+        data:
+          title: "{{ trigger.event.data.user }} möchte {{ trigger.event.data.icon }} {{ trigger.event.data.reward }}"
+          message: "{{ trigger.event.data.cost }} Punkte"
+          data:
+            actions:
+              - action: "CHORES_APPROVE_{{ trigger.event.data.claim_id }}"
+                title: Ja
+              - action: "CHORES_REJECT_{{ trigger.event.data.claim_id }}"
+                title: Nein
+  - alias: Haushalt – Belohnung entscheiden
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.action.startswith('CHORES_') }}"
+    actions:
+      - action: >
+          {{ 'chores.approve_reward' if trigger.event.data.action.startswith('CHORES_APPROVE_') else 'chores.reject_reward' }}
+        data:
+          claim_id: "{{ trigger.event.data.action.split('_')[-1] | int }}"
+```
+
 Geschirrspüler-Zyklen über einen Stromsensor zählen:
 
 ```yaml
@@ -159,6 +201,10 @@ Authentifizierung: `Authorization: Bearer <API-Token>` (oder das Session-Cookie 
 | `POST /api/chores/:id/skip` | Überspringen, ohne Punkte |
 | `POST /api/chores/:id/counter` | Zähler erhöhen (`by`) |
 | `GET /api/completions` · `DELETE /api/completions/:id` | Verlauf, letzten Eintrag rückgängig machen |
+| `GET`/`PUT`/`DELETE /api/vacation` | Ferienmodus abfragen, planen, beenden |
+| `GET`/`POST /api/rewards` · `POST /api/rewards/:id/claim` | Belohnungen, einlösen |
+| `GET /api/claims` · `POST /api/claims/:id/approve` bzw. `/reject` | Wünsche, freigeben/ablehnen |
+| `GET /api/progress` | Punkte, Level, Serien, Abzeichen pro Person |
 | `GET /api/users` · `GET /api/templates` · `GET /api/health` | Personen, Vorlagen, Health-Check |
 
 ## Entwicklung
@@ -181,9 +227,10 @@ pytest
 
 ## Roadmap
 
-- Kinder-Ansicht (Tablet/Kiosk): grosse Icons, Punkte, Levels, Abzeichen, Belohnungen mit Eltern-Freigabe
+- Kinder-Ansicht für Tablet/Kiosk (grosse Icons)
 - MagicMirror²-Modul `MMM-Chores` (liest `/api/chores/due`)
-- Statistiken (wer macht was, Streaks)
+- Faire Verteilung: Zuweisung an die Person mit den wenigsten Punkten, Statistik pro Woche/Monat
+- Teilschritte (Checklisten), einmalige Aufgaben, Kalender
 - Optionale Benachrichtigungen direkt aus der App (ntfy/Pushover)
 
 ## Lizenz

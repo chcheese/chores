@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json as jsonlib
 from typing import Any
 
 import aiohttp
@@ -17,6 +18,10 @@ class ChoresAuthError(ChoresError):
 
 class ChoresConnectionError(ChoresError):
     """Server not reachable."""
+
+
+class ChoresNotFoundError(ChoresError):
+    """Endpoint or object does not exist (e.g. older server version)."""
 
 
 class ChoresApi:
@@ -44,7 +49,10 @@ class ChoresApi:
                     raise ChoresAuthError("Token ungültig")
                 if resp.status == 204:
                     return None
-                data = await resp.json(content_type=None)
+                if resp.status == 404 and method == "GET":
+                    raise ChoresNotFoundError(f"{path} nicht gefunden")
+                text = await resp.text()
+                data = jsonlib.loads(text) if text.strip() else None
                 if resp.status >= 400:
                     msg = data.get("error") if isinstance(data, dict) else None
                     raise ChoresError(msg or f"HTTP {resp.status}")
@@ -80,3 +88,21 @@ class ChoresApi:
 
     async def increment_counter(self, chore_id: int, by: int = 1) -> dict[str, Any]:
         return await self._request("POST", f"/api/chores/{chore_id}/counter", {"by": by})
+
+    async def vacation(self) -> dict[str, Any] | None:
+        return await self._request("GET", "/api/vacation")
+
+    async def set_vacation(self, start: str, until: str) -> dict[str, Any]:
+        return await self._request("PUT", "/api/vacation", {"from": start, "until": until})
+
+    async def end_vacation(self) -> None:
+        await self._request("DELETE", "/api/vacation")
+
+    async def claims(self, status: str | None = None) -> list[dict[str, Any]]:
+        return await self._request("GET", f"/api/claims?status={status}" if status else "/api/claims")
+
+    async def decide_claim(self, claim_id: int, approve: bool) -> dict[str, Any]:
+        return await self._request("POST", f"/api/claims/{claim_id}/{'approve' if approve else 'reject'}", {})
+
+    async def progress(self) -> list[dict[str, Any]]:
+        return await self._request("GET", "/api/progress")

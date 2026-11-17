@@ -48,6 +48,14 @@
       },
       "overdue": {
         "name": "Überfällige Aufgaben"
+      },
+      "pending_rewards": {
+        "name": "Offene Wünsche"
+      }
+    },
+    "binary_sensor": {
+      "vacation": {
+        "name": "Ferienmodus"
       }
     }
   },
@@ -122,6 +130,62 @@
           "name": "Um",
           "description": "Wert, um den der Zähler erhöht wird (negativ = verringern)."
         },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "approve_reward": {
+      "name": "Belohnung freigeben",
+      "description": "Gibt einen Belohnungswunsch frei.",
+      "fields": {
+        "claim_id": {
+          "name": "Antrag (ID)",
+          "description": "claim_id aus dem Event bzw. dem Sensor «Offene Wünsche»."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "reject_reward": {
+      "name": "Belohnung ablehnen",
+      "description": "Lehnt einen Belohnungswunsch ab, die Punkte werden wieder frei.",
+      "fields": {
+        "claim_id": {
+          "name": "Antrag (ID)",
+          "description": "claim_id aus dem Event bzw. dem Sensor «Offene Wünsche»."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "start_vacation": {
+      "name": "Ferien starten",
+      "description": "Aktiviert/plant den Ferienmodus: in dieser Zeit ist nichts fällig.",
+      "fields": {
+        "start": {
+          "name": "Von",
+          "description": "Erster Ferientag (leer = heute)."
+        },
+        "until": {
+          "name": "Bis und mit",
+          "description": "Letzter Ferientag."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
+    },
+    "end_vacation": {
+      "name": "Ferien beenden",
+      "description": "Beendet den Ferienmodus, die Fälligkeiten werden angepasst.",
+      "fields": {
         "config_entry_id": {
           "name": "Instanz",
           "description": "Nur nötig bei mehreren Chores-Instanzen."

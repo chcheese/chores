@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Role, type User } from "../api";
-import { useMe } from "../App";
-import { formatDateTime } from "../format";
+import { api, type Role, type User, type Vacation } from "../api";
+import { canManage, useMe } from "../App";
+import { formatDate, formatDateTime, todayZurich } from "../format";
 import { applyTheme, loadTheme, type ThemeChoice } from "../theme";
 import { Avatar, Segmented, Sheet, useToast } from "../ui";
 import { AVATARS, COLORS } from "./Setup";
@@ -110,6 +110,76 @@ function UserForm({ user, onClose }: { user?: User; onClose: () => void }) {
         </div>
       </form>
     </Sheet>
+  );
+}
+
+function VacationSettings() {
+  const vacation = useQuery({ queryKey: ["vacation"], queryFn: api.vacation });
+  if (vacation.isLoading) return null;
+  // Re-mount the form when the stored vacation changes so the inputs follow it.
+  return <VacationForm key={JSON.stringify(vacation.data)} v={vacation.data ?? null} />;
+}
+
+function VacationForm({ v }: { v: Vacation | null }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const today = todayZurich();
+  const [from, setFrom] = useState(v?.from ?? today);
+  const [until, setUntil] = useState(v?.until ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: () => api.setVacation(from, until),
+    onSuccess: (r) => (qc.invalidateQueries(), setError(null), toast({ text: r.active ? "Ferienmodus ist aktiv" : "Ferien geplant" })),
+    onError: (e) => setError((e as Error).message),
+  });
+  const end = useMutation({
+    mutationFn: api.endVacation,
+    onSuccess: () => (qc.invalidateQueries(), setUntil(""), toast({ text: v?.active ? "Ferien beendet" : "Ferien abgesagt" })),
+  });
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h2>🏖️ Ferienmodus</h2>
+      </div>
+      <form
+        className="panel"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        <p className="muted" style={{ margin: 0 }}>
+          Während der Ferien ist nichts fällig und Home Assistant erinnert an nichts. Danach verschieben sich Aufgaben «nach Erledigung» um die Ferientage,
+          feste Termine in den Ferien entfallen.
+        </p>
+        {v && (
+          <p style={{ margin: 0 }}>
+            <b>{v.active ? "Aktiv" : "Geplant"}:</b> {formatDate(v.from)} – {formatDate(v.until)}
+          </p>
+        )}
+        <div className="grid2">
+          <label className="field">
+            <span>Von</span>
+            <input className="input" type="date" value={v?.active ? v.from : from} disabled={v?.active} onChange={(e) => setFrom(e.target.value)} required />
+          </label>
+          <label className="field">
+            <span>Bis und mit</span>
+            <input className="input" type="date" min={v?.active ? today : from} value={until} onChange={(e) => setUntil(e.target.value)} required />
+          </label>
+        </div>
+        {error && <p className="error">{error}</p>}
+        <div className="row end">
+          {v && (
+            <button type="button" className="btn" onClick={() => end.mutate()} disabled={end.isPending}>
+              {v.active ? "Jetzt beenden" : "Absagen"}
+            </button>
+          )}
+          <button className="btn primary" disabled={!until || save.isPending}>
+            {v ? "Ändern" : "Ferien planen"}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -223,6 +293,8 @@ export function SettingsPage() {
           ]}
         />
       </section>
+
+      {canManage(me) && <VacationSettings />}
 
       {me.role === "admin" && (
         <section className="section">

@@ -72,3 +72,47 @@ increment_counter:
       selector:
         config_entry:
           integration: chores
+approve_reward:
+  fields:
+    claim_id:
+      required: true
+      example: 4
+      selector:
+        number:
+          min: 1
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores
+reject_reward:
+  fields:
+    claim_id:
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores
+start_vacation:
+  fields:
+    start:
+      selector:
+        date:
+    until:
+      required: true
+      selector:
+        date:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores
+end_vacation:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores

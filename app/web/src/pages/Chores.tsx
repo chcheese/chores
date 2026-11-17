@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type AssignmentMode, type Chore, type ChoreInput, type IntervalUnit, type ScheduleType } from "../api";
-import { scheduleText, todayZurich, unitLabel } from "../format";
+import { api, type AssignmentMode, type Chore, type ChoreInput, type IntervalUnit, type ScheduleType, type Template, type TemplateCategory } from "../api";
+import { durationText, MONTH_SHORT, scheduleText, seasonText, todayZurich, unitLabel } from "../format";
 import { Avatar, Segmented, Sheet, useToast } from "../ui";
 
 const WEEKDAYS: [string, string][] = [
@@ -13,7 +13,8 @@ const WEEKDAYS: [string, string][] = [
   ["SA", "Sa"],
   ["SU", "So"],
 ];
-const ICONS = ["🧹", "🪣", "🛏️", "🚽", "🛁", "🍽️", "🧺", "🧊", "🔥", "💨", "💧", "🪟", "🔄", "🚨", "❄️", "🌿", "🗑️", "🧽", "🐾", "🚗"];
+const ICONS = ["🧹", "🪣", "🛏️", "🚽", "🛁", "🍽️", "🧺", "🧊", "🔥", "💨", "💧", "🪟", "🔄", "🚨", "❄️", "🌱", "🌿", "🍂", "✂️", "🗑️", "🧽", "🐾", "🚗", "🌡️", "📦"];
+const DURATIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180];
 
 type Pattern = "interval" | "weekday" | "monthday";
 
@@ -52,6 +53,8 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
     counterTarget: chore?.counterTarget ?? 30,
     counterLabel: chore?.counterLabel ?? "",
     active: chore?.active ?? true,
+    durationMinutes: chore?.durationMinutes ?? null,
+    activeMonths: chore?.activeMonths ?? [],
   });
   const [pattern, setPattern] = useState<Pattern>(initPattern.pattern);
   const [days, setDays] = useState<string[]>(initPattern.days);
@@ -86,6 +89,8 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
         counterTarget: f.useCounter ? f.counterTarget : null,
         counterLabel: f.useCounter ? f.counterLabel : "",
         active: f.active,
+        durationMinutes: f.durationMinutes,
+        activeMonths: f.activeMonths.length === 12 ? [] : f.activeMonths,
       };
       if (chore) {
         if (f.nextDue !== chore.nextDue) body.nextDue = f.nextDue;
@@ -147,6 +152,22 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
             <input className="input" type="number" min={0} max={1000} value={f.points} onChange={(e) => set("points", Number(e.target.value))} />
           </label>
         </div>
+        <label className="field">
+          <span>Dauer (geschätzt)</span>
+          <select
+            className="input"
+            value={f.durationMinutes ?? ""}
+            onChange={(e) => set("durationMinutes", e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">keine Angabe</option>
+            {(f.durationMinutes && !DURATIONS.includes(f.durationMinutes) ? [f.durationMinutes, ...DURATIONS] : DURATIONS).map((d) => (
+              <option key={d} value={d}>
+                {durationText(d)}
+              </option>
+            ))}
+          </select>
+          <small>Für den Filter «⚡ Kurz» und die Zeitschätzung bei «Fällig».</small>
+        </label>
         <label className="field">
           <span>Beschreibung</span>
           <textarea className="input" value={f.description} onChange={(e) => set("description", e.target.value)} maxLength={2000} />
@@ -256,6 +277,36 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
           )
         )}
 
+        <div className="field">
+          <span>Saison: {seasonText(f.activeMonths.length === 12 ? [] : f.activeMonths)}</span>
+          <div className="month-grid">
+            {MONTH_SHORT.map((label, i) => (
+              <button
+                type="button"
+                key={label}
+                className="chip"
+                aria-pressed={f.activeMonths.includes(i + 1)}
+                onClick={() =>
+                  set("activeMonths", f.activeMonths.includes(i + 1) ? f.activeMonths.filter((m) => m !== i + 1) : [...f.activeMonths, i + 1].sort((a, b) => a - b))
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <small>
+            Nichts gewählt = ganzjährig. Ausserhalb der Saison ruht die Aufgabe und wird zum Saisonstart wieder fällig.
+            {f.activeMonths.length > 0 && (
+              <>
+                {" "}
+                <button type="button" className="link" onClick={() => set("activeMonths", [])}>
+                  Ganzjährig
+                </button>
+              </>
+            )}
+          </small>
+        </div>
+
         <label className="field">
           <span>Toleranz bis «überfällig»</span>
           <select className="input" value={f.toleranceDays} onChange={(e) => set("toleranceDays", Number(e.target.value))}>
@@ -302,7 +353,7 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
         </div>
 
         <div className="field">
-          <label className="row">
+          <label className="row check">
             <input type="checkbox" checked={f.useCounter} onChange={(e) => set("useCounter", e.target.checked)} />
             Zusätzlich nach Zähler fällig (z.B. alle 30 Spülgänge)
           </label>
@@ -322,7 +373,7 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
         </div>
 
         {chore && (
-          <label className="row">
+          <label className="row check">
             <input type="checkbox" checked={f.active} onChange={(e) => set("active", e.target.checked)} />
             Aktiv
           </label>
@@ -352,6 +403,12 @@ export function ChoreForm({ chore, onClose }: { chore?: Chore; onClose: () => vo
   );
 }
 
+const CATEGORY_LABEL: Record<TemplateCategory, string> = { haushalt: "Haushalt", "haus-garten": "Haus & Garten" };
+
+function templateMeta(t: Template): string {
+  return [scheduleText(t as unknown as Chore), t.activeMonths.length ? seasonText(t.activeMonths) : null, durationText(t.durationMinutes)].filter(Boolean).join(" · ");
+}
+
 function TemplateSheet({ existing, onClose }: { existing: Chore[]; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -362,30 +419,51 @@ function TemplateSheet({ existing, onClose }: { existing: Chore[]; onClose: () =
     mutationFn: () => api.importTemplates(sel),
     onSuccess: (r) => (qc.invalidateQueries(), toast({ text: `${r.length} Aufgaben angelegt` }), onClose()),
   });
+  const categories = Object.keys(CATEGORY_LABEL) as TemplateCategory[];
   return (
     <Sheet title="Aus Vorlagen" onClose={onClose}>
       <p className="muted" style={{ margin: 0 }}>
-        Die erste Fälligkeit wird über die nächsten zwei Wochen verteilt.
+        Die erste Fälligkeit wird über die nächsten zwei Wochen verteilt, saisonale Aufgaben starten mit ihrer Saison.
       </p>
-      <div className="panel list">
-        {templates.data?.map((t) => (
-          <label className="list-item" key={t.key}>
-            <input type="checkbox" checked={sel.includes(t.key)} onChange={(e) => setSel((p) => (e.target.checked ? [...p, t.key] : p.filter((k) => k !== t.key)))} />
-            <span style={{ fontSize: "1.4rem" }}>{t.icon}</span>
-            <span className="grow">
-              {t.title}
-              <br />
-              <small className="muted">
-                {scheduleText(t as unknown as Chore)}
-                {have.has(t.title) && " · schon vorhanden"}
-              </small>
-            </span>
-          </label>
-        ))}
-      </div>
-      <div className="row end">
-        <button className="btn" onClick={() => setSel(templates.data?.filter((t) => !have.has(t.title)).map((t) => t.key) ?? [])}>
-          Alle neuen wählen
+      {categories.map((cat) => {
+        const items = templates.data?.filter((t) => t.category === cat) ?? [];
+        const fresh = items.filter((t) => !have.has(t.title)).map((t) => t.key);
+        return (
+          <div className="field" key={cat}>
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <h3 style={{ fontSize: "var(--fs-md)" }}>{CATEGORY_LABEL[cat]}</h3>
+              {fresh.length > 0 && (
+                <button type="button" className="btn ghost" style={{ minHeight: 32 }} onClick={() => setSel((p) => [...new Set([...p, ...fresh])])}>
+                  Alle neuen wählen
+                </button>
+              )}
+            </div>
+            <div className="panel list">
+              {items.map((t) => (
+                <label className="list-item" key={t.key}>
+                  <input
+                    type="checkbox"
+                    checked={sel.includes(t.key)}
+                    onChange={(e) => setSel((p) => (e.target.checked ? [...p, t.key] : p.filter((k) => k !== t.key)))}
+                  />
+                  <span style={{ fontSize: "1.4rem" }}>{t.icon}</span>
+                  <span className="grow">
+                    {t.title}
+                    <br />
+                    <small className="muted">
+                      {templateMeta(t)}
+                      {have.has(t.title) && " · schon vorhanden"}
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      <div className="row end sheet-actions">
+        <button className="btn" onClick={() => setSel([])} disabled={!sel.length}>
+          Auswahl leeren
         </button>
         <button className="btn primary" disabled={!sel.length || imp.isPending} onClick={() => imp.mutate()}>
           {sel.length} übernehmen
@@ -438,6 +516,8 @@ export function ChoresPage() {
                     <br />
                     <small className="muted">
                       {scheduleText(c)}
+                      {c.activeMonths.length > 0 && ` · ${seasonText(c.activeMonths)}`}
+                      {c.durationMinutes != null && ` · ${durationText(c.durationMinutes)}`}
                       {!c.active && " · inaktiv"}
                     </small>
                   </span>

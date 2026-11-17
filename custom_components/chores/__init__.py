@@ -12,26 +12,34 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 
 from .api import ChoresApi, ChoresError
 from .const import (
     ATTR_BY,
     ATTR_CHORE_ID,
+    ATTR_CLAIM_ID,
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DAYS,
+    ATTR_FROM,
     ATTR_NOTE,
+    ATTR_UNTIL,
     ATTR_USER_ID,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    SERVICE_APPROVE_REWARD,
     SERVICE_COMPLETE,
+    SERVICE_END_VACATION,
     SERVICE_INCREMENT_COUNTER,
+    SERVICE_REJECT_REWARD,
+    SERVICE_START_VACATION,
     SERVICE_SKIP,
     SERVICE_SNOOZE,
 )
 from .coordinator import ChoresConfigEntry, ChoresCoordinator
 
-PLATFORMS = [Platform.SENSOR, Platform.TODO]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.TODO]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 _BASE = {vol.Required(ATTR_CHORE_ID): cv.positive_int, vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string}
@@ -42,6 +50,13 @@ SCHEMAS = {
     SERVICE_INCREMENT_COUNTER: vol.Schema(
         {**_BASE, vol.Optional(ATTR_BY, default=1): vol.All(vol.Coerce(int), vol.Range(min=-1000, max=1000))}
     ),
+}
+_ENTRY = {vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string}
+OTHER_SCHEMAS = {
+    SERVICE_APPROVE_REWARD: vol.Schema({**_ENTRY, vol.Required(ATTR_CLAIM_ID): cv.positive_int}),
+    SERVICE_REJECT_REWARD: vol.Schema({**_ENTRY, vol.Required(ATTR_CLAIM_ID): cv.positive_int}),
+    SERVICE_START_VACATION: vol.Schema({**_ENTRY, vol.Optional(ATTR_FROM): cv.date, vol.Required(ATTR_UNTIL): cv.date}),
+    SERVICE_END_VACATION: vol.Schema(_ENTRY),
 }
 
 
@@ -76,8 +91,24 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         chore = result.get("chore", result) if isinstance(result, dict) else None
         return {"chore": chore} if call.return_response else None
 
+    async def handle_other(call: ServiceCall) -> None:
+        coord = _coordinator(hass, call)
+        try:
+            if call.service in (SERVICE_APPROVE_REWARD, SERVICE_REJECT_REWARD):
+                await coord.api.decide_claim(call.data[ATTR_CLAIM_ID], call.service == SERVICE_APPROVE_REWARD)
+            elif call.service == SERVICE_START_VACATION:
+                start = call.data.get(ATTR_FROM) or dt_util.now().date()
+                await coord.api.set_vacation(start.isoformat(), call.data[ATTR_UNTIL].isoformat())
+            else:
+                await coord.api.end_vacation()
+        except ChoresError as err:
+            raise HomeAssistantError(f"Chores: {err}") from err
+        await coord.async_request_refresh()
+
     for name, schema in SCHEMAS.items():
         hass.services.async_register(DOMAIN, name, handle, schema=schema, supports_response=SupportsResponse.OPTIONAL)
+    for name, schema in OTHER_SCHEMAS.items():
+        hass.services.async_register(DOMAIN, name, handle_other, schema=schema)
     return True
 
 

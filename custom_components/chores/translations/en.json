@@ -48,6 +48,14 @@
       },
       "overdue": {
         "name": "Overdue chores"
+      },
+      "pending_rewards": {
+        "name": "Pending rewards"
+      }
+    },
+    "binary_sensor": {
+      "vacation": {
+        "name": "Vacation mode"
       }
     }
   },
@@ -122,6 +130,62 @@
           "name": "By",
           "description": "Amount (negative to decrease)."
         },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "approve_reward": {
+      "name": "Approve reward",
+      "description": "Approves a reward wish.",
+      "fields": {
+        "claim_id": {
+          "name": "Claim ID",
+          "description": "claim_id from the event or the pending rewards sensor."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "reject_reward": {
+      "name": "Reject reward",
+      "description": "Rejects a reward wish; the points are released.",
+      "fields": {
+        "claim_id": {
+          "name": "Claim ID",
+          "description": "claim_id from the event or the pending rewards sensor."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "start_vacation": {
+      "name": "Start vacation",
+      "description": "Activates/schedules vacation mode: nothing is due in that period.",
+      "fields": {
+        "start": {
+          "name": "From",
+          "description": "First day (empty = today)."
+        },
+        "until": {
+          "name": "Until",
+          "description": "Last day (inclusive)."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
+    },
+    "end_vacation": {
+      "name": "End vacation",
+      "description": "Ends vacation mode; due dates are adjusted.",
+      "fields": {
         "config_entry_id": {
           "name": "Instance",
           "description": "Only needed with several Chores instances."
