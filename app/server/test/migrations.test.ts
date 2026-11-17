@@ -18,7 +18,7 @@ describe("migrations", () => {
     db1.$client.close();
 
     const db2 = openDb(file);
-    expect(db2.select().from(chores).all()).toHaveLength(15);
+    expect(db2.select().from(chores).all()).toHaveLength(16);
     const applied = db2.$client.prepare("select count(*) as n from __drizzle_migrations").get() as { n: number };
     expect(applied.n).toBeGreaterThan(0);
     db2.$client.close();

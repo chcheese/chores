@@ -425,9 +425,17 @@ function TemplateSheet({ existing, onClose }: { existing: Chore[]; onClose: () =
       <p className="muted" style={{ margin: 0 }}>
         Die erste Fälligkeit wird über die nächsten zwei Wochen verteilt, saisonale Aufgaben starten mit ihrer Saison.
       </p>
+      {templates.data && templates.data.every((t) => have.has(t.title)) && (
+        <div className="empty" style={{ padding: "8px 16px" }}>
+          <span className="big">✅</span>
+          <p style={{ margin: 0 }}>Alle Vorlagen sind schon übernommen.</p>
+        </div>
+      )}
       {categories.map((cat) => {
-        const items = templates.data?.filter((t) => t.category === cat) ?? [];
-        const fresh = items.filter((t) => !have.has(t.title)).map((t) => t.key);
+        // Only offer what isn't in the list yet.
+        const items = templates.data?.filter((t) => t.category === cat && !have.has(t.title)) ?? [];
+        const fresh = items.map((t) => t.key);
+        if (!items.length) return null;
         return (
           <div className="field" key={cat}>
             <div className="row" style={{ justifyContent: "space-between" }}>
@@ -450,10 +458,7 @@ function TemplateSheet({ existing, onClose }: { existing: Chore[]; onClose: () =
                   <span className="grow">
                     {t.title}
                     <br />
-                    <small className="muted">
-                      {templateMeta(t)}
-                      {have.has(t.title) && " · schon vorhanden"}
-                    </small>
+                    <small className="muted">{templateMeta(t)}</small>
                   </span>
                 </label>
               ))}

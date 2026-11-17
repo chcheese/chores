@@ -219,7 +219,7 @@ describe("templates", () => {
       .map((t: { key: string }) => t.key);
     const all = await req("POST", "/api/templates/import", { cookie: adminCookie, body: { keys } });
     expect(all.status).toBe(201);
-    expect(all.body).toHaveLength(15);
+    expect(all.body).toHaveLength(16);
     const due = (await req("GET", "/api/chores/due", { cookie: adminCookie })).body;
     expect(due.length).toBeLessThanOrEqual(2);
     const dates = all.body.map((c: { nextDue: string }) => c.nextDue).sort();
