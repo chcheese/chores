@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { CLAIM_STATUSES } from "../db/schema.js";
+import { CLAIM_KINDS, CLAIM_STATUSES } from "../db/schema.js";
 import type { RewardService } from "../domain/rewards.js";
 import { HttpError, requireAuth, requireRole, requireRoleOrToken } from "../lib/auth.js";
 import { ErrorSchema, IdParams, optionalBody } from "./schemas.js";
@@ -33,6 +33,9 @@ const ClaimSchema = z.object({
   cost: z.number(),
   userId: z.number(),
   status: z.enum(CLAIM_STATUSES),
+  kind: z.enum(CLAIM_KINDS),
+  amountRappen: z.number().nullable().meta({ description: "Nur Taschengeld: Betrag in Rappen" }),
+  note: z.string(),
   requestedAt: z.string(),
   decidedAt: z.string().nullable(),
   decidedBy: z.number().nullable(),
@@ -44,6 +47,7 @@ const ProgressSchema = z.object({
   userId: z.number(),
   pointsTotal: z.number().meta({ description: "Alle je verdienten Punkte (für Level)" }),
   balance: z.number().meta({ description: "Noch einlösbare Punkte" }),
+  allowanceRappen: z.number().nullable().meta({ description: "Kinder mit Taschengeld: Wert der Punkte in Rappen" }),
   level: z.number(),
   levelFloor: z.number(),
   levelNext: z.number(),
@@ -129,6 +133,7 @@ export const rewardRoutes =
           summary: "Eingelöste Belohnungen (Kinder sehen nur ihre eigenen)",
           querystring: z.object({
             status: z.enum(CLAIM_STATUSES).optional(),
+            kind: z.enum(CLAIM_KINDS).optional(),
             user_id: z.coerce.number().int().positive().optional(),
             limit: z.coerce.number().int().min(1).max(500).default(100),
           }),
@@ -138,7 +143,7 @@ export const rewardRoutes =
       async (req) => {
         const a = req.auth!;
         const userId = a.kind === "session" && a.user.role === "child" ? a.user.id : req.query.user_id;
-        return rs.claims({ status: req.query.status, userId, limit: req.query.limit });
+        return rs.claims({ status: req.query.status, kind: req.query.kind, userId, limit: req.query.limit });
       },
     );
 
@@ -175,6 +180,63 @@ export const rewardRoutes =
         rs.withdraw(claim.id);
         return reply.code(204).send(null);
       },
+    );
+
+    // -------------------------------------------------------- allowance
+
+    const AllowanceSchema = z.object({
+      enabled: z.boolean(),
+      pointsPerFranc: z.number().int().min(1).max(10000).meta({ description: "Wie viele Punkte einen Franken wert sind" }),
+    });
+    const Rappen = z.number().int().min(5).max(1_000_000).meta({ description: "Betrag in Rappen (5er-Schritte)" });
+
+    app.get(
+      "/api/allowance",
+      { preHandler: requireAuth, schema: { tags: ["Taschengeld"], summary: "Taschengeld-Einstellungen", response: { 200: AllowanceSchema, ...errors } } },
+      async () => rs.getAllowance(),
+    );
+
+    app.put(
+      "/api/allowance",
+      {
+        preHandler: requireRole("adult"),
+        schema: { tags: ["Taschengeld"], summary: "Taschengeld ein-/ausschalten, Umrechnung", body: AllowanceSchema.partial(), response: { 200: AllowanceSchema, ...errors } },
+      },
+      async (req) => rs.setAllowance(req.body),
+    );
+
+    app.post(
+      "/api/allowance/request",
+      {
+        preHandler: requireRole("child"),
+        schema: {
+          tags: ["Taschengeld"],
+          summary: "Kind wünscht eine Auszahlung (Erwachsene geben frei)",
+          body: z.object({ amount_rappen: Rappen }),
+          response: { 201: ClaimSchema, ...errors },
+        },
+      },
+      async (req, reply) => {
+        if (req.auth!.kind !== "session") throw new HttpError(403, "Keine Berechtigung");
+        return reply.code(201).send(rs.requestPayout(req.auth!.user.id, req.body.amount_rappen));
+      },
+    );
+
+    app.post(
+      "/api/allowance/payout",
+      {
+        preHandler: requireRoleOrToken("adult"),
+        schema: {
+          tags: ["Taschengeld"],
+          summary: "Auszahlung verbuchen (Bargeld gegeben)",
+          body: z.object({ user_id: z.number().int().positive(), amount_rappen: Rappen, note: z.string().max(200).default("") }),
+          response: { 201: ClaimSchema, ...errors },
+        },
+      },
+      async (req, reply) =>
+        reply
+          .code(201)
+          .send(rs.payout(req.body.user_id, req.body.amount_rappen, req.auth!.kind === "session" ? req.auth!.user.id : null, req.body.note)),
     );
 
     app.get(

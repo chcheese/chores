@@ -198,6 +198,38 @@ export const choreRoutes =
       },
     );
 
+    // --------------------------------------------------------------- plan
+
+    app.get(
+      "/api/plan",
+      {
+        preHandler: requireAuth,
+        schema: {
+          tags: ["Aufgaben"],
+          summary: "Tagesplan: dringendste Aufgaben, die ins Zeitbudget passen",
+          querystring: z.object({
+            minutes: z.coerce.number().int().min(1).max(600),
+            user_id: z.coerce.number().int().positive().optional().meta({ description: "Nur Aufgaben dieser Person bzw. für alle" }),
+          }),
+          response: {
+            200: z.object({
+              minutes: z.number(),
+              usedMinutes: z.number(),
+              items: z.array(ChoreViewSchema),
+              leftOver: z.number().meta({ description: "Fällige Aufgaben, die nicht mehr Platz hatten" }),
+              withoutDuration: z.number().meta({ description: "Fällige Aufgaben ohne Zeitangabe (nicht planbar)" }),
+            }),
+            ...errors,
+          },
+        },
+      },
+      async (req) => {
+        const a = req.auth!;
+        const userId = a.kind === "session" && a.user.role === "child" ? a.user.id : req.query.user_id;
+        return svc.plan(req.query.minutes, { userId });
+      },
+    );
+
     // ----------------------------------------------------------- vacation
 
     app.get(

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { openDb } from "../src/db/client.js";
-import { computeBadges, levelFor, streaks } from "../src/domain/rewards.js";
+import { computeBadges, levelFor, pointsFor, rappenFor, streaks } from "../src/domain/rewards.js";
 import { loadConfig } from "../src/lib/config.js";
 
 describe("levels, streaks, badges", () => {
@@ -17,6 +17,14 @@ describe("levels, streaks, badges", () => {
     expect(streaks(days, "2026-11-15")).toEqual({ current: 3, best: 3 });
     expect(streaks(days, "2026-11-16")).toEqual({ current: 0, best: 3 });
     expect(streaks([], "2026-11-16")).toEqual({ current: 0, best: 0 });
+  });
+
+  it("converts points and francs (5-Rappen rounding)", () => {
+    expect(rappenFor(25, 50)).toBe(50); // Bad putzen = CHF 0.50
+    expect(rappenFor(33, 50)).toBe(65); // 0.66 → 0.65
+    expect(rappenFor(0, 50)).toBe(0);
+    expect(pointsFor(250, 50)).toBe(125);
+    expect(pointsFor(5, 30)).toBe(2); // 1.5 → 2, never cheaper than it is worth
   });
 
   it("records when badges were earned", () => {
@@ -117,5 +125,40 @@ describe("rewards API", () => {
     await req("POST", `/api/rewards/${reward.id}/claim`, { cookie: adminCookie });
     const seen = (await req("GET", "/api/claims", { cookie: kidCookie })).body;
     expect(seen.every((c: { userId: number }) => c.userId === kidId)).toBe(true);
+  });
+});
+
+describe("pocket money", () => {
+  it("is off by default; adults switch it on and pay out", async () => {
+    expect((await req("GET", "/api/allowance", { cookie: kidCookie })).body).toEqual({ enabled: false, pointsPerFranc: 50 });
+    const chore = (await req("POST", "/api/chores", { cookie: adminCookie, body: { title: "Rasen", scheduleType: "after_completion", points: 150 } })).body;
+    await req("POST", `/api/chores/${chore.id}/complete`, { cookie: kidCookie });
+    expect((await req("POST", "/api/allowance/payout", { cookie: adminCookie, body: { user_id: kidId, amount_rappen: 100 } })).status).toBe(400);
+
+    expect((await req("PUT", "/api/allowance", { cookie: kidCookie, body: { enabled: true } })).status).toBe(403);
+    expect((await req("PUT", "/api/allowance", { cookie: adminCookie, body: { enabled: true } })).body).toEqual({ enabled: true, pointsPerFranc: 50 });
+    const kidProgress = async () => (await req("GET", "/api/progress", { cookie: kidCookie })).body.find((p: { userId: number }) => p.userId === kidId);
+    expect(await kidProgress()).toMatchObject({ balance: 150, allowanceRappen: 300 });
+
+    // Cash handed out by an adult: booked as approved, points are gone.
+    const paid = await req("POST", "/api/allowance/payout", { cookie: adminCookie, body: { user_id: kidId, amount_rappen: 200, note: "Kiosk" } });
+    expect(paid.status).toBe(201);
+    expect(paid.body).toMatchObject({ kind: "payout", status: "approved", cost: 100, amountRappen: 200, title: "Taschengeld CHF 2.00" });
+    expect(await kidProgress()).toMatchObject({ balance: 50, allowanceRappen: 100 });
+
+    // Child asks for the rest; too much is refused, 5-Rappen steps only.
+    expect((await req("POST", "/api/allowance/request", { cookie: kidCookie, body: { amount_rappen: 150 } })).status).toBe(400);
+    expect((await req("POST", "/api/allowance/request", { cookie: kidCookie, body: { amount_rappen: 33 } })).status).toBe(400);
+    const wish = await req("POST", "/api/allowance/request", { cookie: kidCookie, body: { amount_rappen: 100 } });
+    expect(wish.body).toMatchObject({ status: "pending", kind: "payout" });
+    expect(await kidProgress()).toMatchObject({ balance: 0 });
+    await req("POST", `/api/claims/${wish.body.id}/reject`, { cookie: adminCookie });
+    expect(await kidProgress()).toMatchObject({ balance: 50 });
+
+    // Adults don't get pocket money.
+    const admin = (await req("GET", "/api/auth/me", { cookie: adminCookie })).body.user;
+    expect((await req("POST", "/api/allowance/payout", { cookie: adminCookie, body: { user_id: admin.id, amount_rappen: 100 } })).status).toBe(400);
+    const payouts = (await req("GET", "/api/claims?kind=payout", { cookie: adminCookie })).body;
+    expect(payouts).toHaveLength(2);
   });
 });

@@ -19,6 +19,10 @@ export type CompletionKind = (typeof COMPLETION_KINDS)[number];
 export const CLAIM_STATUSES = ["pending", "approved", "rejected"] as const;
 export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
 
+/** A claim spends points either on a reward or as pocket money paid out in cash. */
+export const CLAIM_KINDS = ["reward", "payout"] as const;
+export type ClaimKind = (typeof CLAIM_KINDS)[number];
+
 const createdAt = () =>
   text("created_at")
     .notNull()
@@ -160,6 +164,10 @@ export const rewardClaims = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: CLAIM_STATUSES }).notNull().default("pending"),
+    kind: text("kind", { enum: CLAIM_KINDS }).notNull().default("reward"),
+    /** Payouts only: amount in Rappen (CHF 2.50 = 250). */
+    amountRappen: integer("amount_rappen"),
+    note: text("note").notNull().default(""),
     requestedAt: text("requested_at")
       .notNull()
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),

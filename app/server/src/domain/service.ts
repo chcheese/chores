@@ -57,6 +57,15 @@ export interface ChoreView extends Chore {
   paused: boolean;
 }
 
+export interface DayPlan {
+  minutes: number;
+  usedMinutes: number;
+  items: ChoreView[];
+  /** Due/overdue chores that did not fit (or have no duration). */
+  leftOver: number;
+  withoutDuration: number;
+}
+
 export interface VacationState extends Vacation {
   active: boolean;
 }
@@ -372,6 +381,44 @@ export class ChoreService {
       tx.delete(completions).where(eq(completions.id, comp.id)).run();
       return this.view(updated!);
     });
+  }
+
+  // ------------------------------------------------------------- plan
+
+  /**
+   * Day plan for a time budget: the most urgent chores that fit into
+   * `minutes` – overdue first (longest overdue first), then due, then chores
+   * coming up within a week that are already more than half "used up".
+   * Chores without a duration estimate can't be planned and are counted
+   * separately.
+   */
+  plan(minutes: number, opts: { userId?: number } = {}): DayPlan {
+    const candidates = this.list().filter(
+      (c) =>
+        c.inSeason &&
+        !c.paused &&
+        (opts.userId == null || c.assignee == null || c.assignee.id === opts.userId) &&
+        (c.status !== "ok" || (c.daysUntilDue <= 7 && c.freshness <= 0.5)),
+    );
+    const rank = { overdue: 0, due: 1, ok: 2 } as const;
+    candidates.sort((a, b) => rank[a.status] - rank[b.status] || a.daysUntilDue - b.daysUntilDue || a.freshness - b.freshness);
+    const items: ChoreView[] = [];
+    let used = 0;
+    for (const c of candidates) {
+      if (c.durationMinutes == null) continue;
+      if (used + c.durationMinutes <= minutes) {
+        items.push(c);
+        used += c.durationMinutes;
+      }
+    }
+    const unplannedOpen = candidates.filter((c) => c.status !== "ok" && !items.includes(c));
+    return {
+      minutes,
+      usedMinutes: used,
+      items,
+      leftOver: unplannedOpen.length,
+      withoutDuration: candidates.filter((c) => c.durationMinutes == null && c.status !== "ok").length,
+    };
   }
 
   // ----------------------------------------------------------- vacation

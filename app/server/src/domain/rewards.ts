@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { chores, type ClaimStatus, completions, type Reward, rewardClaims, rewards, users } from "../db/schema.js";
+import { chores, type ClaimStatus, completions, type Reward, rewardClaims, rewards, settings, users } from "../db/schema.js";
 import { addDays, type CalendarDate, diffDays, localDate } from "./dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "./service.js";
 
@@ -99,6 +99,29 @@ export function computeBadges(entries: DoneEntry[], tz: string): Badge[] {
   return BADGES.map((b) => ({ ...b, earnedAt: earned.get(b.key) ?? null }));
 }
 
+// ------------------------------------------------------------- allowance
+
+export interface AllowanceSettings {
+  enabled: boolean;
+  /** How many points are worth one Swiss franc. */
+  pointsPerFranc: number;
+}
+
+export const DEFAULT_ALLOWANCE: AllowanceSettings = { enabled: false, pointsPerFranc: 50 };
+
+/** Points → Rappen, rounded down to 5 Rappen (smallest Swiss coin). */
+export function rappenFor(points: number, pointsPerFranc: number): number {
+  if (points <= 0) return 0;
+  return Math.floor((points * 100) / pointsPerFranc / 5) * 5;
+}
+
+/** Rappen → points needed (rounded up, so a payout never costs less than it is worth). */
+export function pointsFor(rappen: number, pointsPerFranc: number): number {
+  return Math.ceil((rappen * pointsPerFranc) / 100);
+}
+
+export const formatChf = (rappen: number): string => `CHF ${(rappen / 100).toFixed(2)}`;
+
 // --------------------------------------------------------------- service
 
 export interface Progress {
@@ -106,6 +129,8 @@ export interface Progress {
   pointsTotal: number;
   /** Points that can still be spent (lifetime minus pending/approved rewards). */
   balance: number;
+  /** Children with pocket money enabled: balance worth in Rappen; else null. */
+  allowanceRappen: number | null;
   level: number;
   levelFloor: number;
   levelNext: number;
@@ -171,6 +196,59 @@ export class RewardService {
     return u.p - this.spent(userId);
   }
 
+  // -------------------------------------------------------- allowance
+
+  getAllowance(): AllowanceSettings {
+    const row = this.db.select().from(settings).where(eq(settings.key, "allowance")).get();
+    return { ...DEFAULT_ALLOWANCE, ...((row?.value as Partial<AllowanceSettings> | undefined) ?? {}) };
+  }
+
+  setAllowance(patch: Partial<AllowanceSettings>): AllowanceSettings {
+    const value = { ...this.getAllowance(), ...patch };
+    this.db.insert(settings).values({ key: "allowance", value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run();
+    return value;
+  }
+
+  private payoutClaim(userId: number, rappen: number, status: "pending" | "approved", deciderId: number | null, note: string) {
+    const a = this.getAllowance();
+    if (!a.enabled) throw new ValidationError("Taschengeld ist nicht eingeschaltet");
+    const user = this.db.select().from(users).where(eq(users.id, userId)).get();
+    if (!user) throw new NotFoundError(`Benutzer ${userId} nicht gefunden`);
+    if (user.role !== "child") throw new ValidationError("Taschengeld gibt es nur für Kinder");
+    if (rappen < 5 || rappen % 5 !== 0) throw new ValidationError("Betrag in 5-Rappen-Schritten, mindestens CHF 0.05");
+    const cost = pointsFor(rappen, a.pointsPerFranc);
+    const balance = this.balance(userId);
+    if (cost > balance) throw new ValidationError(`Zu wenig Punkte: ${formatChf(rappen)} braucht ${cost}, vorhanden ${balance}`);
+    const now = (this.clock.now?.() ?? new Date()).toISOString();
+    return this.db
+      .insert(rewardClaims)
+      .values({
+        rewardId: null,
+        kind: "payout",
+        title: `Taschengeld ${formatChf(rappen)}`,
+        icon: "💰",
+        cost,
+        amountRappen: rappen,
+        note,
+        userId,
+        status,
+        requestedAt: now,
+        ...(status === "approved" ? { decidedAt: now, decidedBy: deciderId } : {}),
+      })
+      .returning()
+      .get();
+  }
+
+  /** A child asks for pocket money; an adult approves like a reward. */
+  requestPayout(userId: number, rappen: number) {
+    return this.db.transaction(() => this.payoutClaim(userId, rappen, "pending", null, ""));
+  }
+
+  /** An adult records cash handed out (booked as approved right away). */
+  payout(userId: number, rappen: number, deciderId: number | null, note = "") {
+    return this.db.transaction(() => this.payoutClaim(userId, rappen, "approved", deciderId, note));
+  }
+
   claim(userId: number, rewardId: number) {
     return this.db.transaction(() => {
       const r = this.get(rewardId);
@@ -185,8 +263,9 @@ export class RewardService {
     });
   }
 
-  claims(filter: { status?: ClaimStatus; userId?: number; limit?: number } = {}) {
+  claims(filter: { status?: ClaimStatus; userId?: number; kind?: "reward" | "payout"; limit?: number } = {}) {
     const conds = [
+      ...(filter.kind ? [eq(rewardClaims.kind, filter.kind)] : []),
       ...(filter.status ? [eq(rewardClaims.status, filter.status)] : []),
       ...(filter.userId != null ? [eq(rewardClaims.userId, filter.userId)] : []),
     ];
@@ -228,6 +307,7 @@ export class RewardService {
   progress(): Progress[] {
     const today = this.today();
     const weekStart = addDays(today, -6);
+    const allowance = this.getAllowance();
     const all = this.db
       .select({
         userId: completions.userId,
@@ -251,10 +331,12 @@ export class RewardService {
         const mine = all.filter((c) => c.userId === u.id);
         const days = mine.map((c) => localDate(new Date(c.doneAt), this.clock.tz));
         const { current, best } = streaks(days, today);
+        const balance = u.pointsTotal - this.spent(u.id);
         return {
           userId: u.id,
           pointsTotal: u.pointsTotal,
-          balance: u.pointsTotal - this.spent(u.id),
+          balance,
+          allowanceRappen: allowance.enabled && u.role === "child" ? rappenFor(balance, allowance.pointsPerFranc) : null,
           ...levelFor(u.pointsTotal),
           streak: current,
           bestStreak: best,

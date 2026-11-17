@@ -219,7 +219,7 @@ describe("templates", () => {
       .map((t: { key: string }) => t.key);
     const all = await req("POST", "/api/templates/import", { cookie: adminCookie, body: { keys } });
     expect(all.status).toBe(201);
-    expect(all.body).toHaveLength(16);
+    expect(all.body).toHaveLength(15);
     const due = (await req("GET", "/api/chores/due", { cookie: adminCookie })).body;
     expect(due.length).toBeLessThanOrEqual(2);
     const dates = all.body.map((c: { nextDue: string }) => c.nextDue).sort();
@@ -306,5 +306,31 @@ describe("seasons & vacation", () => {
   it("reports freshness and duration", async () => {
     const c = await mk({ title: "Betten", intervalValue: 10, lastDoneDate: "2026-11-12", durationMinutes: 20 });
     expect(c).toMatchObject({ nextDue: "2026-11-22", freshness: 0.5, durationMinutes: 20 });
+  });
+});
+
+describe("day plan", () => {
+  const mk = async (body: object) => (await req("POST", "/api/chores", { cookie: adminCookie, body: { scheduleType: "after_completion", ...body } })).body;
+
+  it("fills the time budget with the most urgent chores first", async () => {
+    await mk({ title: "Bad", intervalValue: 7, lastDoneDate: "2026-11-05", durationMinutes: 30 }); // overdue since 12 Nov
+    await mk({ title: "Sieb", intervalValue: 14, lastDoneDate: "2026-11-01", durationMinutes: 5 }); // overdue since 15 Nov
+    await mk({ title: "Saugen", intervalValue: 7, lastDoneDate: "2026-11-10", durationMinutes: 30 }); // due today
+    await mk({ title: "Betten", intervalValue: 10, lastDoneDate: "2026-11-09", durationMinutes: 20 }); // in 2 days, 20 % fresh
+    await mk({ title: "Fenster", intervalValue: 30, lastDoneDate: "2026-11-15", durationMinutes: 10 }); // just done → not planned
+    await mk({ title: "Ohne Dauer", intervalValue: 7, lastDoneDate: "2026-11-01" }); // overdue, no duration
+
+    const p30 = (await req("GET", "/api/plan?minutes=30", { cookie: adminCookie })).body;
+    // Bad (30) fits first; nothing else fits after it.
+    expect(p30.items.map((c: { title: string }) => c.title)).toEqual(["Bad"]);
+    expect(p30).toMatchObject({ usedMinutes: 30, withoutDuration: 1 });
+
+    const p60 = (await req("GET", "/api/plan?minutes=60", { cookie: adminCookie })).body;
+    expect(p60.items.map((c: { title: string }) => c.title)).toEqual(["Bad", "Sieb", "Betten"]);
+    expect(p60.usedMinutes).toBe(55);
+    expect(p60.leftOver).toBe(2); // Saugen didn't fit, «Ohne Dauer» can't be planned
+
+    const p120 = (await req("GET", "/api/plan?minutes=120", { cookie: adminCookie })).body;
+    expect(p120.items.map((c: { title: string }) => c.title)).toEqual(["Bad", "Sieb", "Saugen", "Betten"]);
   });
 });
