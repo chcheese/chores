@@ -185,3 +185,7 @@ pytest
 - MagicMirror²-Modul `MMM-Chores` (liest `/api/chores/due`)
 - Statistiken (wer macht was, Streaks)
 - Optionale Benachrichtigungen direkt aus der App (ntfy/Pushover)
+
+## Lizenz
+
+[MIT](LICENSE)
