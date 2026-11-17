@@ -179,6 +179,8 @@ class PendingRewardsSensor(ChoresEntity, SensorEntity):
                     "reward": c["title"],
                     "icon": c["icon"],
                     "cost": c["cost"],
+                    "kind": c.get("kind", "reward"),
+                    "amount_chf": c["amountRappen"] / 100 if c.get("amountRappen") else None,
                     "user": (users.get(c["userId"]) or {}).get("name"),
                     "requested_at": c["requestedAt"],
                 }
@@ -231,4 +233,5 @@ class PointsSensor(ChoresEntity, SensorEntity):
             "best_streak": p["bestStreak"],
             "done_this_week": p["doneThisWeek"],
             "badges": [f"{b['icon']} {b['title']}" for b in p["badges"] if b["earnedAt"]],
+            "allowance_chf": p["allowanceRappen"] / 100 if p.get("allowanceRappen") is not None else None,
         }

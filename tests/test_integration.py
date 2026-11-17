@@ -132,7 +132,8 @@ async def test_vacation_rewards_and_points(hass: HomeAssistant, mock_api) -> Non
     pending = next(s for e, s in states.items() if e.endswith("_pending_rewards") or e.endswith("_offene_wunsche"))
     assert pending.state == "1"
     assert pending.attributes["claims"][0] == {
-        "claim_id": 7, "reward": "Glace", "icon": "🍦", "cost": 40, "user": "Lena", "requested_at": "2026-11-17T10:00:00Z"
+        "claim_id": 7, "reward": "Glace", "icon": "🍦", "cost": 40, "kind": "reward", "amount_chf": None,
+        "user": "Lena", "requested_at": "2026-11-17T10:00:00Z",
     }
 
     lena = next(s for e, s in states.items() if e.endswith("punkte_lena"))
@@ -155,7 +156,9 @@ async def test_reward_event_and_services(hass: HomeAssistant, mock_api) -> None:
     mock_api.get(f"{URL}/api/progress", json=PROGRESS)
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
-    assert events == [{"claim_id": 8, "reward": "Filmabend", "icon": "🍦", "cost": 80, "user_id": 2, "user": "Lena"}]
+    assert events == [
+        {"claim_id": 8, "reward": "Filmabend", "icon": "🍦", "cost": 80, "kind": "reward", "amount_chf": None, "user_id": 2, "user": "Lena"}
+    ]
 
     mock_api.post(f"{URL}/api/claims/8/approve", json=claim(8))
     mock_api.post(f"{URL}/api/claims/7/reject", json=claim(7))
@@ -181,3 +184,18 @@ async def test_older_server_without_extras(hass: HomeAssistant, aioclient_mock) 
     assert entry.state.value == "loaded"
     vacation = next(s for s in hass.states.async_all() if s.entity_id.startswith("binary_sensor."))
     assert vacation.state == "off"
+
+
+async def test_get_plan_service(hass: HomeAssistant, mock_api) -> None:
+    await _setup(hass)
+    mock_api.get(
+        f"{URL}/api/plan?minutes=30",
+        json={"minutes": 30, "usedMinutes": 25, "leftOver": 1, "withoutDuration": 0, "items": [chore(1, "Boden saugen", "overdue", "2026-11-12", durationMinutes=25)]},
+    )
+    resp = await hass.services.async_call(DOMAIN, "get_plan", {"minutes": 30}, blocking=True, return_response=True)
+    assert resp == {
+        "minutes": 30,
+        "used_minutes": 25,
+        "left_over": 1,
+        "items": [{"chore_id": 1, "title": "Boden saugen", "icon": "🧹", "status": "overdue", "duration_minutes": 25}],
+    }

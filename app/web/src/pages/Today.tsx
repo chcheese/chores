@@ -259,6 +259,92 @@ function RoomView({ list, users, onOpen, onDone }: { list: Chore[]; users: User[
   );
 }
 
+const BUDGETS = [10, 15, 20, 30, 45, 60, 90, 120];
+
+const loadBudget = (): number => {
+  try {
+    const n = Number(localStorage.getItem("chores-budget"));
+    return BUDGETS.includes(n) ? n : 30;
+  } catch {
+    return 30;
+  }
+};
+
+/** "I have X minutes" → the most urgent chores that fit. */
+function PlanSheet({ users, onDone, onClose }: { users: User[]; onDone: (c: Chore) => void; onClose: () => void }) {
+  const me = useMe();
+  const [minutes, setMinutesState] = useState(loadBudget);
+  const [mineOnly, setMineOnly] = useState(false);
+  const setMinutes = (m: number) => {
+    setMinutesState(m);
+    try {
+      localStorage.setItem("chores-budget", String(m));
+    } catch {
+      /* private mode */
+    }
+  };
+  const plan = useQuery({
+    queryKey: ["plan", minutes, mineOnly],
+    queryFn: () => api.plan(minutes, mineOnly ? me.id : undefined),
+  });
+  const p = plan.data;
+  return (
+    <Sheet title="⏱ Tagesplan" onClose={onClose}>
+      <div className="field">
+        <span>Wie viel Zeit hast du?</span>
+        <div className="chips">
+          {BUDGETS.map((m) => (
+            <button key={m} className="chip" aria-pressed={m === minutes} onClick={() => setMinutes(m)}>
+              {durationText(m)}
+            </button>
+          ))}
+        </div>
+        {users.length > 1 && me.role !== "child" && (
+          <label className="row check">
+            <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+            Nur Aufgaben für mich (und für alle)
+          </label>
+        )}
+      </div>
+      {p && (
+        <>
+          {p.items.length === 0 ? (
+            <div className="empty" style={{ padding: "8px 16px" }}>
+              <span className="big">✨</span>
+              <p style={{ margin: 0 }}>
+                {p.leftOver > 0 ? `Nichts Dringendes passt in ${durationText(minutes)} – nimm dir etwas mehr Zeit.` : "Nichts zu tun – geniess die Zeit!"}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="plan-head">
+                <b>
+                  {p.items.length} {p.items.length === 1 ? "Aufgabe" : "Aufgaben"}
+                </b>
+                <span className="muted">
+                  {durationText(p.usedMinutes)} von {durationText(p.minutes)}
+                </span>
+              </div>
+              <div className="cond plan-bar" aria-hidden>
+                <i style={{ width: `${Math.round((p.usedMinutes / p.minutes) * 100)}%`, background: "var(--accent)" }} />
+              </div>
+              {p.items.map((c) => (
+                <ChoreCard key={c.id} chore={c} users={users} onOpen={() => undefined} onDone={() => onDone(c)} />
+              ))}
+            </>
+          )}
+          {(p.leftOver > 0 || p.withoutDuration > 0) && (
+            <small className="muted">
+              {p.leftOver > 0 && `${p.leftOver} weitere fällige ${p.leftOver === 1 ? "Aufgabe hat" : "Aufgaben haben"} nicht Platz.`}
+              {p.withoutDuration > 0 && ` ${p.withoutDuration} ohne Zeitangabe – trag die Dauer im Bearbeiten-Dialog ein, dann werden sie mitgeplant.`}
+            </small>
+          )}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 const loadView = (): View => {
   try {
     return localStorage.getItem("chores-view") === "rooms" ? "rooms" : "due";
@@ -276,6 +362,7 @@ export function TodayPage() {
   const [who, setWho] = useState<Chore | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("all");
+  const [planOpen, setPlanOpen] = useState(false);
   const [view, setViewState] = useState<View>(loadView);
   const setView = (v: View) => {
     setViewState(v);
@@ -337,6 +424,10 @@ export function TodayPage() {
           <span>diese Woche</span>
         </div>
       </div>
+
+      <button className="btn primary block plan-btn" onClick={() => setPlanOpen(true)}>
+        ⏱ Tagesplan: Ich habe … Minuten
+      </button>
 
       <div className="toolbar">
         <div className="chips">
@@ -407,6 +498,7 @@ export function TodayPage() {
         })
       )}
 
+      {planOpen && <PlanSheet users={activeUsers} onDone={onDone} onClose={() => setPlanOpen(false)} />}
       {open && <ChoreSheet chore={open} onClose={() => setOpen(null)} />}
       {who && (
         <WhoSheet

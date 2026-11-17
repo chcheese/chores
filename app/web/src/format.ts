@@ -97,3 +97,9 @@ export function durationText(min: number | null | undefined): string {
 export function freshnessColor(f: number): string {
   return f > 0.5 ? "var(--ok)" : f > 0.2 ? "var(--due)" : "var(--over)";
 }
+
+/** 250 → "CHF 2.50" */
+export const formatChf = (rappen: number): string => `CHF ${(rappen / 100).toFixed(2)}`;
+
+/** Points needed for an amount (rounded up, same as the server). */
+export const pointsForRappen = (rappen: number, pointsPerFranc: number): number => Math.ceil((rappen * pointsPerFranc) / 100);

@@ -191,6 +191,24 @@
           "description": "Only needed with several Chores instances."
         }
       }
+    },
+    "get_plan": {
+      "name": "Day plan",
+      "description": "Returns the most urgent chores that fit the time budget.",
+      "fields": {
+        "minutes": {
+          "name": "Minutes",
+          "description": "Time budget in minutes."
+        },
+        "user_id": {
+          "name": "Person (ID)",
+          "description": "Only chores for this person (or anyone)."
+        },
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "Only needed with several Chores instances."
+        }
+      }
     }
   }
 }

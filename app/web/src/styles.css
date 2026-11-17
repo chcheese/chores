@@ -1062,3 +1062,22 @@ textarea.input {
 input[type="date"].input {
   width: 100%;
 }
+
+/* ------------------------------------------------------- day plan (0.3) */
+.plan-btn {
+  justify-content: center;
+}
+.plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.plan-bar {
+  height: 8px;
+  margin-top: -8px;
+}
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

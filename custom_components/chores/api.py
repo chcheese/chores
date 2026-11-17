@@ -104,5 +104,9 @@ class ChoresApi:
     async def decide_claim(self, claim_id: int, approve: bool) -> dict[str, Any]:
         return await self._request("POST", f"/api/claims/{claim_id}/{'approve' if approve else 'reject'}", {})
 
+    async def plan(self, minutes: int, user_id: int | None = None) -> dict[str, Any]:
+        query = f"?minutes={minutes}" + (f"&user_id={user_id}" if user_id else "")
+        return await self._request("GET", f"/api/plan{query}")
+
     async def progress(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/api/progress")

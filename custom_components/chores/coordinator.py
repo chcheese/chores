@@ -90,6 +90,8 @@ class ChoresCoordinator(DataUpdateCoordinator[ChoresData]):
                     "reward": claim["title"],
                     "icon": claim["icon"],
                     "cost": claim["cost"],
+                    "kind": claim.get("kind", "reward"),
+                    "amount_chf": claim["amountRappen"] / 100 if claim.get("amountRappen") else None,
                     "user_id": claim["userId"],
                     "user": (new.users.get(claim["userId"]) or {}).get("name"),
                 },

@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Claim, type Progress, type Reward, type User } from "../api";
+import { type Allowance, api, type Claim, type Progress, type Reward, type User } from "../api";
 import { canManage, useMe } from "../App";
-import { formatDateTime } from "../format";
+import { formatChf, formatDateTime, pointsForRappen } from "../format";
 import { Avatar, Sheet, useToast } from "../ui";
 
 const REWARD_ICONS = ["🎁", "📱", "🎮", "🍦", "🍫", "🎬", "🌙", "🎲", "💰", "🧸", "⚽", "🍕", "🏊", "📚", "🎨", "🚲"];
@@ -18,7 +18,90 @@ const SUGGESTIONS: { title: string; icon: string; cost: number }[] = [
 
 const STATUS_LABEL: Record<Claim["status"], string> = { pending: "wartet auf Freigabe", approved: "freigegeben", rejected: "abgelehnt" };
 
-function MyProgress({ me, p }: { me: User; p: Progress }) {
+/** Amount picker in 5-Rappen steps, capped at what the points are worth. */
+function PayoutSheet({
+  title,
+  maxRappen,
+  allowance,
+  withNote,
+  submitLabel,
+  onSubmit,
+  onClose,
+}: {
+  title: string;
+  maxRappen: number;
+  allowance: Allowance;
+  withNote: boolean;
+  submitLabel: string;
+  onSubmit: (rappen: number, note: string) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const [chf, setChf] = useState((maxRappen / 100).toFixed(2));
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const rappen = Math.round(Number(chf.replace(",", ".")) * 100);
+  const valid = Number.isFinite(rappen) && rappen >= 5 && rappen % 5 === 0 && rappen <= maxRappen;
+  const quick = [100, 200, 500, 1000].filter((r) => r < maxRappen);
+  return (
+    <Sheet title={title} onClose={onClose}>
+      <form
+        className="form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            await onSubmit(rappen, note);
+            onClose();
+          } catch (err) {
+            setError((err as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <p className="muted" style={{ margin: 0 }}>
+          Verfügbar: <b>{formatChf(maxRappen)}</b> · {allowance.pointsPerFranc} Punkte = CHF 1.00
+        </p>
+        <div className="chips">
+          {quick.map((r) => (
+            <button type="button" key={r} className="chip" aria-pressed={rappen === r} onClick={() => setChf((r / 100).toFixed(2))}>
+              {formatChf(r)}
+            </button>
+          ))}
+          <button type="button" className="chip" aria-pressed={rappen === maxRappen} onClick={() => setChf((maxRappen / 100).toFixed(2))}>
+            Alles
+          </button>
+        </div>
+        <label className="field">
+          <span>Betrag (CHF)</span>
+          <input className="input" inputMode="decimal" value={chf} onChange={(e) => setChf(e.target.value)} />
+          <small>{valid ? `kostet ${pointsForRappen(rappen, allowance.pointsPerFranc)} Punkte` : "In 5-Rappen-Schritten, höchstens das Verfügbare."}</small>
+        </label>
+        {withNote && (
+          <label className="field">
+            <span>Notiz (optional)</span>
+            <input className="input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="z.B. bar gegeben" />
+          </label>
+        )}
+        {error && <p className="error">{error}</p>}
+        <div className="row end">
+          <button type="button" className="btn" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button className="btn primary" disabled={!valid || busy}>
+            {submitLabel}
+          </button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+function MyProgress({ me, p, allowance }: { me: User; p: Progress; allowance: Allowance | undefined }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
   const span = Math.max(1, p.levelNext - p.levelFloor);
   const pct = Math.min(100, Math.round(((p.pointsTotal - p.levelFloor) / span) * 100));
   return (
@@ -38,7 +121,7 @@ function MyProgress({ me, p }: { me: User; p: Progress }) {
       <div className="mini-stats">
         <div>
           <b>{p.balance}</b>
-          <span>Punkte zum Einlösen</span>
+          <span>{p.allowanceRappen != null ? `Punkte = ${formatChf(p.allowanceRappen)}` : "Punkte zum Einlösen"}</span>
         </div>
         <div>
           <b>
@@ -52,6 +135,85 @@ function MyProgress({ me, p }: { me: User; p: Progress }) {
           <span>diese Woche erledigt</span>
         </div>
       </div>
+      {allowance && p.allowanceRappen != null && me.role === "child" && (
+        <button className="btn" disabled={p.allowanceRappen < 5} onClick={() => setAsking(true)}>
+          💰 Taschengeld auszahlen lassen
+        </button>
+      )}
+      {asking && allowance && p.allowanceRappen != null && (
+        <PayoutSheet
+          title="💰 Taschengeld"
+          maxRappen={p.allowanceRappen}
+          allowance={allowance}
+          withNote={false}
+          submitLabel="Wünschen"
+          onSubmit={(r) => api.requestPayout(r).then(() => (qc.invalidateQueries(), toast({ text: "Wunsch gesendet – jetzt muss noch jemand zustimmen." })))}
+          onClose={() => setAsking(false)}
+        />
+      )}
+    </section>
+  );
+}
+
+function PocketMoney({ progress, users, allowance }: { progress: Progress[]; users: User[]; allowance: Allowance }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [paying, setPaying] = useState<{ user: User; max: number } | null>(null);
+  const payouts = useQuery({ queryKey: ["claims", "payouts"], queryFn: () => api.claims({ status: "approved" }) });
+  const kids = progress.filter((p) => p.allowanceRappen != null);
+  if (!kids.length) return null;
+  const history = (payouts.data ?? []).filter((c) => c.kind === "payout").slice(0, 6);
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h2>💰 Taschengeld</h2>
+      </div>
+      <div className="panel list" style={{ padding: "4px 14px" }}>
+        {kids.map((p) => {
+          const u = users.find((x) => x.id === p.userId);
+          if (!u) return null;
+          return (
+            <div className="list-item" key={p.userId}>
+              <Avatar user={u} />
+              <span className="grow">
+                {u.name}
+                <br />
+                <small className="muted">{p.balance} Punkte</small>
+              </span>
+              <b className="money">{formatChf(p.allowanceRappen ?? 0)}</b>
+              <button className="btn" style={{ minHeight: 36 }} disabled={(p.allowanceRappen ?? 0) < 5} onClick={() => setPaying({ user: u, max: p.allowanceRappen ?? 0 })}>
+                Auszahlen
+              </button>
+            </div>
+          );
+        })}
+        {history.map((c) => (
+          <div className="list-item" key={c.id}>
+            <span style={{ fontSize: "1.2rem" }}>💰</span>
+            <span className="grow">
+              <small>
+                {users.find((x) => x.id === c.userId)?.name}: {formatChf(c.amountRappen ?? 0)} ausbezahlt
+                {c.note && ` · ${c.note}`}
+              </small>
+              <br />
+              <small className="muted">{formatDateTime(c.decidedAt ?? c.requestedAt)}</small>
+            </span>
+          </div>
+        ))}
+      </div>
+      {paying && (
+        <PayoutSheet
+          title={`💰 ${paying.user.name} auszahlen`}
+          maxRappen={paying.max}
+          allowance={allowance}
+          withNote
+          submitLabel="Ausbezahlt"
+          onSubmit={(r, note) =>
+            api.payout(paying.user.id, r, note).then(() => (qc.invalidateQueries(), toast({ text: `${formatChf(r)} an ${paying.user.name} verbucht` })))
+          }
+          onClose={() => setPaying(null)}
+        />
+      )}
     </section>
   );
 }
@@ -78,7 +240,7 @@ function PendingClaims({ claims, users }: { claims: Claim[]; users: User[] }) {
             <div className="claim" key={c.id}>
               <Avatar user={u} />
               <span>
-                <b>{u?.name ?? "?"}</b> möchte {c.icon} {c.title}
+                <b>{u?.name ?? "?"}</b> möchte {c.icon} {c.kind === "payout" ? `${formatChf(c.amountRappen ?? 0)} Taschengeld` : c.title}
                 <br />
                 <small className="muted">
                   {c.cost} Punkte · {formatDateTime(c.requestedAt)}
@@ -343,13 +505,15 @@ export function RewardsPage() {
   const users = useQuery({ queryKey: ["users"], queryFn: api.users });
   const myClaims = useQuery({ queryKey: ["claims", "mine", me.id], queryFn: () => api.claims({ userId: me.id }) });
   const pending = useQuery({ queryKey: ["claims", "pending"], queryFn: () => api.claims({ status: "pending" }), enabled: manage });
+  const allowance = useQuery({ queryKey: ["allowance"], queryFn: api.allowance });
 
   const mine = progress.data?.find((p) => p.userId === me.id);
   if (progress.isLoading || !mine) return <p className="muted">Laden …</p>;
   return (
     <>
-      <MyProgress me={me} p={mine} />
+      <MyProgress me={me} p={mine} allowance={allowance.data?.enabled ? allowance.data : undefined} />
       {manage && <PendingClaims claims={pending.data ?? []} users={users.data ?? []} />}
+      {manage && allowance.data?.enabled && <PocketMoney progress={progress.data ?? []} users={users.data ?? []} allowance={allowance.data} />}
       <Shop rewards={rewards.data ?? []} balance={mine.balance} manage={manage} />
       <MyClaims claims={myClaims.data ?? []} />
       <Badges p={mine} />

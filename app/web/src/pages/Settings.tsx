@@ -183,6 +183,57 @@ function VacationForm({ v }: { v: Vacation | null }) {
   );
 }
 
+function AllowanceSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const allowance = useQuery({ queryKey: ["allowance"], queryFn: api.allowance });
+  const save = useMutation({
+    mutationFn: api.setAllowance,
+    onSuccess: (a) => (qc.invalidateQueries(), toast({ text: a.enabled ? "Taschengeld gespeichert" : "Taschengeld ausgeschaltet" })),
+    onError: (e) => toast({ text: (e as Error).message }),
+  });
+  const a = allowance.data;
+  if (!a) return null;
+  const example = (points: number) => `CHF ${(Math.floor((points * 100) / a.pointsPerFranc / 5) * 5 / 100).toFixed(2)}`;
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h2>💰 Taschengeld</h2>
+      </div>
+      <div className="panel">
+        <label className="row check">
+          <input type="checkbox" checked={a.enabled} onChange={(e) => save.mutate({ enabled: e.target.checked })} />
+          <span>
+            Kinder können ihre Punkte als Taschengeld auszahlen lassen
+            <br />
+            <small className="muted">Wünsche erscheinen wie Belohnungen zum Freigeben. Ausbezahltes verbuchst du unter «Punkte».</small>
+          </span>
+        </label>
+        {a.enabled && (
+          <label className="field">
+            <span>Punkte pro Franken</span>
+            <input
+              key={a.pointsPerFranc}
+              className="input"
+              type="number"
+              min={1}
+              max={10000}
+              defaultValue={a.pointsPerFranc}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                if (n >= 1 && n !== a.pointsPerFranc) save.mutate({ pointsPerFranc: n });
+              }}
+            />
+            <small>
+              Beispiel: Bad putzen (25 Punkte) = {example(25)}, Betten beziehen (20 Punkte) = {example(20)}
+            </small>
+          </label>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Tokens() {
   const qc = useQueryClient();
   const tokens = useQuery({ queryKey: ["tokens"], queryFn: api.tokens });
@@ -295,6 +346,7 @@ export function SettingsPage() {
       </section>
 
       {canManage(me) && <VacationSettings />}
+      {canManage(me) && <AllowanceSettings />}
 
       {me.role === "admin" && (
         <section className="section">

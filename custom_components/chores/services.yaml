@@ -116,3 +116,23 @@ end_vacation:
       selector:
         config_entry:
           integration: chores
+get_plan:
+  fields:
+    minutes:
+      required: true
+      example: 30
+      selector:
+        number:
+          min: 5
+          max: 600
+          step: 5
+          unit_of_measurement: min
+    user_id:
+      selector:
+        number:
+          min: 1
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: chores

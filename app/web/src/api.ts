@@ -121,6 +121,9 @@ export interface Claim {
   cost: number;
   userId: number;
   status: ClaimStatus;
+  kind: "reward" | "payout";
+  amountRappen: number | null;
+  note: string;
   requestedAt: string;
   decidedAt: string | null;
   decidedBy: number | null;
@@ -138,6 +141,7 @@ export interface Progress {
   userId: number;
   pointsTotal: number;
   balance: number;
+  allowanceRappen: number | null;
   level: number;
   levelFloor: number;
   levelNext: number;
@@ -146,6 +150,19 @@ export interface Progress {
   doneCount: number;
   doneThisWeek: number;
   badges: Badge[];
+}
+
+export interface DayPlan {
+  minutes: number;
+  usedMinutes: number;
+  items: Chore[];
+  leftOver: number;
+  withoutDuration: number;
+}
+
+export interface Allowance {
+  enabled: boolean;
+  pointsPerFranc: number;
 }
 
 export class ApiError extends Error {
@@ -225,6 +242,12 @@ export const api = {
   decideClaim: (id: number, approve: boolean) => call<Claim>("POST", `/api/claims/${id}/${approve ? "approve" : "reject"}`, {}),
   withdrawClaim: (id: number) => call<void>("DELETE", `/api/claims/${id}`),
   progress: () => call<Progress[]>("GET", "/api/progress"),
+  plan: (minutes: number, userId?: number) => call<DayPlan>("GET", `/api/plan?minutes=${minutes}${userId ? `&user_id=${userId}` : ""}`),
+  allowance: () => call<Allowance>("GET", "/api/allowance"),
+  setAllowance: (b: Partial<Allowance>) => call<Allowance>("PUT", "/api/allowance", b),
+  requestPayout: (amountRappen: number) => call<Claim>("POST", "/api/allowance/request", { amount_rappen: amountRappen }),
+  payout: (userId: number, amountRappen: number, note = "") =>
+    call<Claim>("POST", "/api/allowance/payout", { user_id: userId, amount_rappen: amountRappen, note }),
 
   templates: () => call<Template[]>("GET", "/api/templates"),
   importTemplates: (keys: string[] | "all") => call<Chore[]>("POST", "/api/templates/import", { keys }),

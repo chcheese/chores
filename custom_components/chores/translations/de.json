@@ -191,6 +191,24 @@
           "description": "Nur nötig bei mehreren Chores-Instanzen."
         }
       }
+    },
+    "get_plan": {
+      "name": "Tagesplan",
+      "description": "Liefert die dringendsten Aufgaben, die in das Zeitbudget passen.",
+      "fields": {
+        "minutes": {
+          "name": "Minuten",
+          "description": "Zeitbudget in Minuten."
+        },
+        "user_id": {
+          "name": "Person (ID)",
+          "description": "Nur Aufgaben dieser Person bzw. für alle."
+        },
+        "config_entry_id": {
+          "name": "Instanz",
+          "description": "Nur nötig bei mehreren Chores-Instanzen."
+        }
+      }
     }
   }
 }

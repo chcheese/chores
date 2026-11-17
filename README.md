@@ -25,6 +25,8 @@ Die App ist die einzige Quelle der Wahrheit. Home Assistant ist nur ein Client.
 - **Ferienmodus**: Während der Ferien ist nichts fällig. Danach verschieben sich Aufgaben «nach Erledigung» um die Ferientage, feste Termine in den Ferien entfallen. Lässt sich planen oder vorzeitig beenden.
 - **Zustandsbalken**: Jede Aufgabe zeigt, wie «frisch» sie ist – voll und grün direkt nach dem Erledigen, leer und rot am Fälligkeitstag. Die Ansicht «Bereiche» fasst das pro Raum zusammen.
 - **Dauer**: geschätzte Minuten pro Aufgabe, Filter «⚡ Kurz» (bis 15 Min.) und Zeitschätzung für alles Fällige.
+- **Tagesplan**: «Ich habe 30 Minuten» – die App wählt die dringendsten Aufgaben, die in die Zeit passen (überfällig zuerst, dann fällig, dann bald fällige).
+- **Taschengeld** (optional): Kinder lassen Punkte als Franken auszahlen (z.B. 50 Punkte = CHF 1.00, in 5-Rappen-Schritten). Wünsche werden wie Belohnungen freigegeben, Erwachsene verbuchen Barauszahlungen direkt.
 - **Punkte & Belohnungen**: Wer etwas erledigt, sammelt Punkte. Erwachsene legen Belohnungen an (Glace, Bildschirmzeit …), Kinder lösen sie ein, ein Erwachsener gibt frei (in der App oder per Home Assistant). Dazu Level, Serien («Tage in Folge») und zehn Abzeichen.
 - **Login** per Avatar + PIN, Rollen *Admin*, *Erwachsen*, *Kind*. API-Tokens für Home Assistant, MagicMirror & Co.
 - **Vorlage-Katalog**: 15 Haushaltsaufgaben und 14 für Haus & Garten (Rasen, Hecke, Laub, Dachrinne, Aussenwasser, Heizung entlüften, Reifenwechsel, Lüftungsfilter, Enthärtungssalz …) mit Dauer und Saison. Beim Übernehmen werden die ersten Fälligkeiten über zwei Wochen verteilt.
@@ -74,7 +76,7 @@ Ohne HACS: den Ordner `custom_components/chores` nach `/config/custom_components
 | `sensor.haushalt_<aufgabe>` | Nächste Fälligkeit (Datum) pro Aufgabe; Attribute `chore_id`, `status`, `assignee`, `duration_minutes`, `freshness`, `in_season`, Zähler … (abschaltbar in den Optionen) |
 | `binary_sensor.haushalt_ferienmodus` | An, solange der Ferienmodus läuft; Attribute `start`, `until` |
 | `sensor.haushalt_offene_wunsche` | Anzahl Belohnungswünsche, die auf Freigabe warten; Liste im Attribut `claims` |
-| `sensor.haushalt_punkte_<name>` | Einlösbare Punkte pro Person; Attribute `level`, `streak`, `done_this_week`, `badges` |
+| `sensor.haushalt_punkte_<name>` | Einlösbare Punkte pro Person; Attribute `level`, `streak`, `done_this_week`, `badges`, `allowance_chf` |
 
 Die Entitäts-IDs entstehen aus den Namen in der Sprache deiner HA-Installation. Englisch: `sensor.haushalt_due_chores`.
 
@@ -89,13 +91,14 @@ Die Entitäts-IDs entstehen aus den Namen in der Sprache deiner HA-Installation.
 | `chores.approve_reward` / `chores.reject_reward` | `claim_id` |
 | `chores.start_vacation` | `until`, optional `start` (Standard heute) |
 | `chores.end_vacation` | – |
+| `chores.get_plan` | `minutes`, optional `user_id` – gibt den Tagesplan zurück (`response_variable`) |
 
 Die `chore_id` steht als Attribut auf jedem Aufgaben-Sensor. Alle Services können die aktualisierte Aufgabe als Antwort zurückgeben (`response_variable`).
 
 ### Events
 
 - `chores_status_changed`: eine Aufgabe wechselt den Status (z.B. `due` → `overdue`). Daten: `chore_id`, `title`, `old_status`, `new_status`, `next_due`, `assignee`.
-- `chores_reward_requested`: ein neuer Belohnungswunsch. Daten: `claim_id`, `reward`, `icon`, `cost`, `user_id`, `user`.
+- `chores_reward_requested`: ein neuer Belohnungs- oder Taschengeldwunsch. Daten: `claim_id`, `reward`, `icon`, `cost`, `kind` (`reward`/`payout`), `amount_chf`, `user_id`, `user`.
 
 ### Beispiel-Automationen
 
@@ -204,7 +207,9 @@ Authentifizierung: `Authorization: Bearer <API-Token>` (oder das Session-Cookie 
 | `GET`/`PUT`/`DELETE /api/vacation` | Ferienmodus abfragen, planen, beenden |
 | `GET`/`POST /api/rewards` · `POST /api/rewards/:id/claim` | Belohnungen, einlösen |
 | `GET /api/claims` · `POST /api/claims/:id/approve` bzw. `/reject` | Wünsche, freigeben/ablehnen |
-| `GET /api/progress` | Punkte, Level, Serien, Abzeichen pro Person |
+| `GET /api/progress` | Punkte, Level, Serien, Abzeichen, Taschengeld pro Person |
+| `GET /api/plan?minutes=30` | Tagesplan für ein Zeitbudget |
+| `GET`/`PUT /api/allowance` · `POST /api/allowance/request` bzw. `/payout` | Taschengeld: Einstellungen, Wunsch, Auszahlung |
 | `GET /api/users` · `GET /api/templates` · `GET /api/health` | Personen, Vorlagen, Health-Check |
 
 ## Entwicklung
@@ -229,6 +234,7 @@ pytest
 
 - Kinder-Ansicht für Tablet/Kiosk (grosse Icons)
 - MagicMirror²-Modul `MMM-Chores` (liest `/api/chores/due`)
+- Putzfreie Tage (nichts wird an bestimmten Wochentagen fällig)
 - Faire Verteilung: Zuweisung an die Person mit den wenigsten Punkten, Statistik pro Woche/Monat
 - Teilschritte (Checklisten), einmalige Aufgaben, Kalender
 - Optionale Benachrichtigungen direkt aus der App (ntfy/Pushover)

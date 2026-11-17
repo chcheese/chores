@@ -22,6 +22,7 @@ from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DAYS,
     ATTR_FROM,
+    ATTR_MINUTES,
     ATTR_NOTE,
     ATTR_UNTIL,
     ATTR_USER_ID,
@@ -31,6 +32,7 @@ from .const import (
     SERVICE_APPROVE_REWARD,
     SERVICE_COMPLETE,
     SERVICE_END_VACATION,
+    SERVICE_GET_PLAN,
     SERVICE_INCREMENT_COUNTER,
     SERVICE_REJECT_REWARD,
     SERVICE_START_VACATION,
@@ -109,6 +111,36 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         hass.services.async_register(DOMAIN, name, handle, schema=schema, supports_response=SupportsResponse.OPTIONAL)
     for name, schema in OTHER_SCHEMAS.items():
         hass.services.async_register(DOMAIN, name, handle_other, schema=schema)
+
+    async def handle_plan(call: ServiceCall) -> dict:
+        coord = _coordinator(hass, call)
+        try:
+            plan = await coord.api.plan(call.data[ATTR_MINUTES], call.data.get(ATTR_USER_ID))
+        except ChoresError as err:
+            raise HomeAssistantError(f"Chores: {err}") from err
+        return {
+            "minutes": plan["minutes"],
+            "used_minutes": plan["usedMinutes"],
+            "left_over": plan["leftOver"],
+            "items": [
+                {"chore_id": c["id"], "title": c["title"], "icon": c["icon"], "status": c["status"], "duration_minutes": c["durationMinutes"]}
+                for c in plan["items"]
+            ],
+        }
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_PLAN,
+        handle_plan,
+        schema=vol.Schema(
+            {
+                **_ENTRY,
+                vol.Required(ATTR_MINUTES): vol.All(vol.Coerce(int), vol.Range(min=1, max=600)),
+                vol.Optional(ATTR_USER_ID): cv.positive_int,
+            }
+        ),
+        supports_response=SupportsResponse.ONLY,
+    )
     return True
 
 

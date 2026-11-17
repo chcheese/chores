@@ -23,7 +23,7 @@ import { choreRoutes } from "./routes/chores.js";
 import { rewardRoutes } from "./routes/rewards.js";
 import { userRoutes } from "./routes/users.js";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 export interface BuildOptions {
   config: Config;
