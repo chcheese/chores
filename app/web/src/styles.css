@@ -153,13 +153,14 @@ textarea {
   inset: auto 0 0 0;
   z-index: 6;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--nav-cols, 4), 1fr);
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--surface);
   border-top: 1px solid var(--line);
 }
 .bottomnav button {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -185,23 +186,87 @@ textarea {
   filter: none;
   opacity: 1;
 }
+.nav-brand {
+  display: none;
+}
 @media (min-width: 900px) {
-  .bottomnav {
-    inset: 0 auto 0 0;
-    width: 96px;
-    height: 100dvh;
-    grid-template-columns: 1fr;
-    grid-auto-rows: 76px;
-    align-content: start;
-    padding-top: 90px;
-    border-top: 0;
-    border-right: 1px solid var(--line);
+  :root {
+    --side-w: 224px;
   }
   .shell {
-    padding-left: 96px;
+    padding-left: var(--side-w);
+  }
+  .bottomnav {
+    inset: 0 auto 0 0;
+    width: var(--side-w);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 18px 12px;
+    border-top: 0;
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+  .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 12px 22px;
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .nav-brand img {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+  .bottomnav button {
+    position: relative;
+    flex: 0 0 44px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    color: var(--ink-2);
+    font-size: var(--fs-sm);
+    text-align: left;
+  }
+  .bottomnav button:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+  .bottomnav button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .bottomnav button[aria-current="page"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .bottomnav button .ico {
+    width: 24px;
+    text-align: center;
+    font-size: 1.15rem;
+  }
+  .bottomnav .nav-badge {
+    top: 50%;
+    left: auto;
+    right: 10px;
+    transform: translateY(-50%);
+  }
+  .topbar {
+    padding-inline: max(16px, calc((100% - 760px) / 2 + 16px));
   }
   .content {
     padding-bottom: 40px;
+  }
+  .toast {
+    left: calc(50% + var(--side-w) / 2);
+    bottom: 24px;
   }
 }
 
@@ -914,8 +979,8 @@ textarea.input {
 }
 .nav-badge {
   position: absolute;
-  top: -4px;
-  right: -12px;
+  top: 6px;
+  left: calc(50% + 6px);
   min-width: 18px;
   height: 18px;
   padding: 0 5px;

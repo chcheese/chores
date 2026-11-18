@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type CSSProperties } from "react";
 import { api, type User } from "./api";
 import { ChoresPage } from "./pages/Chores";
 import { HistoryPage } from "./pages/History";
@@ -89,13 +89,17 @@ export function App() {
             {tab === "verlauf" && user.role !== "child" && <HistoryPage />}
             {tab === "einstellungen" && <SettingsPage />}
           </main>
-          <nav className="bottomnav" aria-label="Hauptnavigation" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }}>
+          <nav className="bottomnav" aria-label="Hauptnavigation" style={{ "--nav-cols": visibleTabs.length } as CSSProperties}>
+            <div className="nav-brand">
+              <img src="/favicon.svg" alt="" />
+              Haushalt
+            </div>
             {visibleTabs.map((t) => (
               <button key={t.id} aria-current={t.id === tab ? "page" : undefined} onClick={() => setTab(t.id)}>
                 <span className="ico" aria-hidden>
                   {t.icon}
-                  {t.id === "belohnungen" && pendingClaims > 0 && <span className="nav-badge">{pendingClaims}</span>}
                 </span>
+                {t.id === "belohnungen" && pendingClaims > 0 && <span className="nav-badge">{pendingClaims}</span>}
                 {t.label}
               </button>
             ))}
